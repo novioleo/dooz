@@ -36,7 +36,9 @@ def test_client(test_app):
 def test_health_check(test_client):
     response = test_client.get("/health")
     assert response.status_code == 200
-    assert response.json() == {"status": "ok"}
+    data = response.json()
+    assert data["status"] == "ok"
+    assert "connected_clients" in data
 
 
 def test_list_clients_empty(test_client):

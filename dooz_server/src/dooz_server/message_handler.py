@@ -1,9 +1,17 @@
 # dooz_server/src/dooz_server/message_handler.py
 import asyncio
+import logging
 from typing import Optional
 from pubsub import pub
 from .client_manager import ClientManager
 from .message_queue import MessageQueue
+
+# Configure logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+)
+logger = logging.getLogger("dooz_server.message_handler")
 
 
 class MessageHandler:
@@ -13,11 +21,13 @@ class MessageHandler:
         self.client_manager = client_manager
         self.message_queue = message_queue or MessageQueue()
         self._setup_pubsub_listeners()
+        logger.info("MessageHandler initialized")
     
     def _setup_pubsub_listeners(self):
         """Set up pubsub listeners for message events."""
         pub.subscribe(self._on_message, 'message.send')
         pub.subscribe(self._on_message_expired, 'message.expired')
+        logger.debug("PubSub listeners registered")
     
     def _on_message(self, data: dict):
         """Handle incoming message events."""
@@ -38,13 +48,17 @@ class MessageHandler:
         Send a message from one client to another.
         Returns: (success, message, message_id or error_code)
         """
+        from_info = self.client_manager.get_client_info(from_client_id)
+        to_info = self.client_manager.get_client_info(to_client_id)
+        
         # Verify sender exists
-        if not self.client_manager.get_client_info(from_client_id):
+        if not from_info:
+            logger.warning(f"Message send failed: sender not found ({from_client_id})")
             return (False, "Sender not found", None)
         
         # Verify recipient exists
-        recipient_info = self.client_manager.get_client_info(to_client_id)
-        if not recipient_info:
+        if not to_info:
+            logger.warning(f"Message send failed: recipient not found ({to_client_id})")
             return (False, "Recipient not found", None)
         
         # Check if recipient is connected
@@ -55,7 +69,7 @@ class MessageHandler:
             message = {
                 "type": "message",
                 "from_client_id": from_client_id,
-                "from_client_name": self.client_manager.get_client_info(from_client_id).name,
+                "from_client_name": from_info.name,
                 "to_client_id": to_client_id,
                 "content": content
             }
@@ -77,12 +91,15 @@ class MessageHandler:
                             loop.run_until_complete(ws.send_json(message))
                         finally:
                             loop.close()
+                logger.info(f"Message delivered: {from_info.name} -> {to_info.name}: {content[:50]}...")
                 return (True, "Message delivered", None)
             except Exception as e:
+                logger.error(f"Message send error: {e}")
                 return (False, f"Failed to send: {str(e)}", None)
         else:
             # Recipient is offline - store message
             if ttl_seconds == 0:
+                logger.info(f"Message queued rejected: recipient offline and TTL=0 ({from_info.name} -> {to_info.name})")
                 return (False, "Recipient offline and TTL is 0 (no offline storage)", None)
             
             msg_id = self.message_queue.store_message(
@@ -91,6 +108,7 @@ class MessageHandler:
                 content=content,
                 ttl_seconds=ttl_seconds
             )
+            logger.info(f"Message queued for offline delivery: {from_info.name} -> {to_info.name} (msg_id={msg_id}, ttl={ttl_seconds}s)")
             return (True, "Message queued for offline delivery", msg_id)
     
     def deliver_pending_messages(self, client_id: str) -> int:
@@ -101,6 +119,7 @@ class MessageHandler:
         if not ws:
             return 0
         
+        client_info = self.client_manager.get_client_info(client_id)
         delivered = 0
         for msg in pending:
             message = {
@@ -129,9 +148,11 @@ class MessageHandler:
                             loop.close()
                 self.message_queue.mark_as_read(msg.message_id)
                 delivered += 1
-            except Exception:
-                pass
+            except Exception as e:
+                logger.error(f"Failed to deliver pending message: {e}")
         
+        if delivered > 0:
+            logger.info(f"Delivered {delivered} pending messages to {client_info.name if client_info else client_id}")
         return delivered
     
     def get_pending_messages(self, client_id: str) -> list:
@@ -144,12 +165,15 @@ class MessageHandler:
         results = []
         
         for msg in expired:
+            from_info = self.client_manager.get_client_info(msg.from_client_id)
+            from_name = from_info.name if from_info else msg.from_client_id
             results.append({
                 "message_id": msg.message_id,
                 "from_client_id": msg.from_client_id,
                 "to_client_id": msg.to_client_id,
                 "content": msg.content
             })
+            
             # Notify sender about expiration
             sender_ws = self.client_manager.get_connection(msg.from_client_id)
             if sender_ws:
@@ -175,6 +199,8 @@ class MessageHandler:
                                 loop.close()
                 except Exception:
                     pass
+            
+            logger.info(f"Message expired (not read in time): msg_id={msg.message_id} from {from_name}")
         
         # Clean up expired messages
         self.message_queue.cleanup_expired()
@@ -183,6 +209,8 @@ class MessageHandler:
     def broadcast_message(self, from_client_id: str, content: str) -> int:
         """Broadcast a message to all connected clients."""
         clients = self.client_manager.get_all_clients()
+        from_info = self.client_manager.get_client_info(from_client_id)
+        from_name = from_info.name if from_info else from_client_id
         sent_count = 0
         
         for client in clients:
@@ -191,4 +219,5 @@ class MessageHandler:
                 if success:
                     sent_count += 1
         
+        logger.info(f"Broadcast from {from_name} to {sent_count} clients: {content[:50]}...")
         return sent_count

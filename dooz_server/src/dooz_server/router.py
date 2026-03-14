@@ -2,6 +2,7 @@
 """FastAPI router with WebSocket endpoint for message server."""
 import json
 import asyncio
+import logging
 from fastapi import APIRouter, Depends, HTTPException, WebSocket, WebSocketDisconnect
 from typing import Annotated, Optional
 
@@ -11,6 +12,12 @@ from .message_queue import MessageQueue
 from .schemas import ClientListResponse, MessageRequest, MessageResponse
 from .heartbeat import HeartbeatMonitor
 
+# Configure logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+)
+logger = logging.getLogger("dooz_server")
 
 router = APIRouter()
 
@@ -47,6 +54,7 @@ class ConnectionManager:
     
     def __init__(self):
         self.active_connections: dict[str, WebSocket] = {}
+        logger.info("ConnectionManager initialized")
     
     async def connect(self, client_id: str, websocket: WebSocket):
         await websocket.accept()
@@ -77,7 +85,13 @@ def get_ws_manager() -> ConnectionManager:
 @router.get("/health")
 async def health_check():
     """Health check endpoint."""
-    return {"status": "ok"}
+    client_manager = get_client_manager()
+    client_count = len(client_manager.get_all_clients())
+    logger.info(f"Health check: OK (connected clients: {client_count})")
+    return {
+        "status": "ok",
+        "connected_clients": client_count
+    }
 
 
 @router.get("/clients", response_model=ClientListResponse)
@@ -86,6 +100,7 @@ async def list_clients(
 ):
     """List all connected clients."""
     clients = client_manager.get_all_clients()
+    logger.info(f"Client list requested: {len(clients)} clients")
     return ClientListResponse(clients=clients, total=len(clients))
 
 
@@ -97,6 +112,7 @@ async def get_client(
     """Get specific client information."""
     client_info = client_manager.get_client_info(client_id)
     if not client_info:
+        logger.warning(f"Client info requested for non-existent client: {client_id}")
         raise HTTPException(status_code=404, detail="Client not found")
     return client_info
 
@@ -117,12 +133,14 @@ async def send_message(
     
     if not success:
         error_code = "recipient_not_found" if "not found" in msg.lower() else "recipient_offline"
+        logger.warning(f"Message send failed: {msg} (from={from_client_id}, to={request.to_client_id})")
         return MessageResponse(
             success=False,
             message=msg,
             error_code=error_code
         )
     
+    logger.info(f"HTTP message sent: from={from_client_id}, to={request.to_client_id}, msg_id={msg_id}")
     return MessageResponse(
         success=True,
         message=msg,
@@ -138,6 +156,7 @@ async def get_pending_messages(
 ):
     """Get pending messages for a client."""
     messages = message_handler.get_pending_messages(client_id)
+    logger.info(f"Pending messages requested for {client_id}: {len(messages)} messages")
     return {
         "messages": [
             {
@@ -159,6 +178,7 @@ async def check_expired_messages(
 ):
     """Check for expired messages and notify senders."""
     expired = message_handler.check_expired_messages()
+    logger.info(f"Expired messages check: {len(expired)} messages expired")
     return {
         "expired_count": len(expired),
         "messages": expired
@@ -181,6 +201,8 @@ async def websocket_endpoint(websocket: WebSocket, client_id: str):
     heartbeat_monitor = get_heartbeat_monitor()
     await heartbeat_monitor.record_heartbeat(client_id)
     
+    logger.info(f"WebSocket connection established: client_id={client_id}")
+    
     # Deliver any pending offline messages
     message_handler = get_message_handler()
     pending_count = message_handler.deliver_pending_messages(client_id)
@@ -189,6 +211,7 @@ async def websocket_endpoint(websocket: WebSocket, client_id: str):
             "type": "pending_delivered",
             "count": pending_count
         }, client_id)
+        logger.info(f"Delivered {pending_count} pending messages to {client_id}")
     
     try:
         while True:
@@ -219,6 +242,8 @@ async def websocket_endpoint(websocket: WebSocket, client_id: str):
                     "message_id": msg_id,
                     "to_client_id": to_client
                 }, client_id)
+                
+                logger.info(f"WS message: {client_id} -> {to_client}: {content[:30]}...")
             
             elif message_type == "ping":
                 # Record heartbeat and respond
@@ -226,6 +251,7 @@ async def websocket_endpoint(websocket: WebSocket, client_id: str):
                 await ws_mgr.send_personal_message({
                     "type": "pong"
                 }, client_id)
+                logger.debug(f"Heartbeat ping from {client_id}")
             
             elif message_type == "heartbeat":
                 # Explicit heartbeat from client
@@ -234,7 +260,9 @@ async def websocket_endpoint(websocket: WebSocket, client_id: str):
                     "type": "heartbeat_ack",
                     "server_time": asyncio.get_event_loop().time()
                 }, client_id)
+                logger.debug(f"Heartbeat from {client_id}")
                 
     except WebSocketDisconnect:
         ws_mgr.disconnect(client_id)
         heartbeat_monitor.remove_client(client_id)
+        logger.info(f"WebSocket disconnected: client_id={client_id}")
