@@ -2,308 +2,2113 @@
 
 > **For agentic workers:** REQUIRED: Use superpowers:subagent-driven-development (if subagents available) or superpowers:executing-plans to implement this plan. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** 构建一个最小可行的去中心化设备协作系统，演示多设备自发现、脑选举、任务分发、多设备协作执行与结果通知能力。
+**Goal:** 构建 dooz MVP - 分布式多智能体协作系统，包含 Server 端 (API, Auth, LLM, Chat, FastDDS Gateway) 和 Client Python。
 
-**Architecture:** 基于 FastDDS 的去中心化 Pub/Sub 架构，通过 Tailscale VPN 组网。每个设备是独立的 Python 进程，通过 FastDDS 话题通信。大脑节点运行 LLM 代理，负责理解用户意图并调度多设备协作。
+**Architecture:** 
+- Server: FastAPI + FastDDS (per tenant) + OAuth2
+- Client: Python Agent 通过 WebSocket 连接到 Server
+- 消息模式: Pub/Sub via FastDDS Topics
 
-**Tech Stack:** Python 3.10+, FastDDS (fastdds Python binding), PyYAML, OpenAI API
-
----
-
-## 文件结构规划
-
-```
-dooz/
-├── core/                          # 核心模块
-│   ├── __init__.py
-│   ├── types.py                   # 消息类型定义
-│   ├── discovery.py               # 设备发现服务
-│   ├── election.py                # 大脑选举服务
-│   ├── transport.py               # 消息传输服务
-│   └── actor_state.py             # Actor 状态机
-├── client/                        # 客户端
-│   ├── __init__.py
-│   ├── base.py                    # Client 基类
-│   ├── brain.py                   # Brain 扩展
-│   ├── skill_executor.py          # Skill 执行器
-│   └── main.py                    # 入口
-├── brain/                         # 大脑能力
-│   ├── __init__.py
-│   ├── llm_client.py              # LLM 调用
-│   └── tools/                     # 工具
-│       ├── __init__.py
-│       ├── search_movie.py
-│       ├── play_video.py
-│       ├── set_light.py
-│       └── speak.py
-├── config/                        # 配置文件
-│   ├── computer.yaml
-│   ├── phone.yaml
-│   ├── speaker.yaml
-│   ├── tv.yaml
-│   └── light.yaml
-├── skills/                        # Skill 定义
-│   ├── __init__.py
-│   ├── screen_display.py
-│   ├── send_notification.py
-│   ├── play_audio.py
-│   ├── display_video.py
-│   ├── toggle_light.py
-│   └── set_brightness.py
-├── scripts/
-│   ├── run_mvp.sh                 # 一键启动
-│   └── vpn/
-│       └── start_vpn.sh
-├── tests/
-│   └── (单元测试)
-├── requirements.txt
-└── README.md
-```
+**Tech Stack:** Python 3.10+, FastAPI, FastDDS, OAuth2, WebSocket
 
 ---
 
-## Chunk 1: 项目基础设置
+## 阶段划分
 
-**目标:** 创建项目结构、安装依赖、验证 FastDDS 环境
+| 阶段 | 内容 | 优先级 |
+|------|------|--------|
+| Phase 1 | 项目结构 + Server 基础 (types, config) | P0 |
+| Phase 2 | Server API + Auth (OAuth2) | P0 |
+| Phase 3 | FastDDS Gateway + Tenant Manager | P0 |
+| Phase 4 | LLM Gateway + Context 组装 | P0 |
+| Phase 5 | Chat Session Manager | P1 |
+| Phase 6 | Client Python Core | P0 |
+| Phase 7 | Client Skills | P1 |
 
-### Task 1: 创建项目目录和依赖文件
+---
+
+## Chunk 1: 项目结构初始化
+
+### Task 1.1: 创建目录结构
 
 **Files:**
-- Create: `requirements.txt`
-- Create: `pyproject.toml`
+- Create: `server/`
+- Create: `server/__init__.py`
+- Create: `server/config/`
+- Create: `server/api/`
+- Create: `server/core/`
+- Create: `server/tenant/`
+- Create: `server/llm/`
+- Create: `server/chat/`
+- Create: `server/coordinator/`
+- Create: `server/transport/`
+- Create: `client/python/`
+- Create: `client/python/core/`
+- Create: `client/python/llm/`
+- Create: `client/python/skills/`
+- Create: `client/python/config/devices/`
 
-- [ ] **Step 1: 创建 requirements.txt**
-
-```txt
-fastdds>=2.14.0
-pyyaml>=6.0
-openai>=1.0.0
-pytest>=7.0.0
-pytest-asyncio>=0.21.0
-```
-
-- [ ] **Step 2: 创建 pyproject.toml**
-
-```toml
-[project]
-name = "dooz"
-version = "0.1.0"
-description = "AI-Friendly Hardware Module & System"
-requires-python = ">=3.10"
-dependencies = [
-    "fastdds>=2.14.0",
-    "pyyaml>=6.0",
-    "openai>=1.0.0",
-]
-
-[project.optional-dependencies]
-dev = [
-    "pytest>=7.0.0",
-    "pytest-asyncio>=0.21.0",
-]
-
-[build-system]
-requires = ["setuptools>=61.0"]
-build-backend = "setuptools.build_meta"
-```
-
-- [ ] **Step 3: 安装依赖**
+- [ ] **Step 1: 创建目录结构**
 
 ```bash
-pip install -r requirements.txt
+mkdir -p server/{api,core,tenant,llm,chat,coordinator,transport,config}
+mkdir -p client/python/{core,llm,skills,config/devices}
 ```
 
-- [ ] **Step 4: 验证 FastDDS 安装**
+- [ ] **Step 2: 验证目录创建**
+
+Run: `find . -type d -name "server" -o -name "client" | head -10`
+Expected: 列出所有新目录
+
+- [ ] **Step 3: Commit**
 
 ```bash
-python -c "import fastdds; print(fastdds.__version__)"
-```
-
-Expected: 输出版本号，无报错
-
-- [ ] **Step 5: Commit**
-
-```bash
-git add requirements.txt pyproject.toml
-git commit -m "feat: add project dependencies"
+git add server/ client/python/
+git commit -m "chore: create project directory structure"
 ```
 
 ---
 
-### Task 2: 创建核心目录结构
+### Task 1.2: Server 基础类型定义
 
 **Files:**
-- Create: `core/__init__.py`
-- Create: `client/__init__.py`
-- Create: `brain/__init__.py`
-- Create: `brain/tools/__init__.py`
-- Create: `config/`
-- Create: `skills/__init__.py`
-- Create: `scripts/vpn/`
-- Create: `tests/`
+- Create: `server/core/__init__.py`
+- Create: `server/core/types.py`
+- Create: `server/core/protocol.py`
+- Create: `server/core/exceptions.py`
 
-- [ ] **Step 1: 创建所有目录和 __init__.py**
-
-```bash
-mkdir -p core client brain/tools config skills scripts/vpn tests
-touch core/__init__.py client/__init__.py brain/__init__.py brain/tools/__init__.py skills/__init__.py
-```
-
-- [ ] **Step 2: Commit**
-
-```bash
-git add .
-git commit -m "feat: create project directory structure"
-```
-
----
-
-## Chunk 2: 核心类型定义
-
-**目标:** 定义所有消息类型和数据结构
-
-### Task 3: 定义消息类型
-
-**Files:**
-- Create: `core/types.py`
-- Test: `tests/test_types.py`
-
-- [ ] **Step 1: 编写测试**
+- [ ] **Step 1: 创建 server/core/__init__.py**
 
 ```python
-# tests/test_types.py
-import pytest
-from core.types import (
-    DeviceAnnounce, DeviceInfo, BrainStatus, TaskRequest,
-    TaskResponse, TaskDispatch, TaskNotify, ActorState
+"""dooz server core package."""
+
+from .types import (
+    DeviceInfo,
+    TaskRequest,
+    TaskDispatch,
+    TaskResponse,
+    TaskCollaborate,
+    TaskTimeout,
+    TaskNotify,
+    DeviceAnnounce,
+    DeviceHeartbeat,
+    DeviceOffline,
+)
+from .protocol import MsgType, TopicPrefix
+from .exceptions import (
+    DoozException,
+    AuthError,
+    TenantNotFoundError,
+    DeviceNotFoundError,
+    LLMError,
 )
 
-def test_device_announce_creation():
-    info = DeviceInfo(
-        device_id="test_001",
-        name="Test Device",
-        role="test",
-        wisdom=50,
-        output=True,
-        skills=["skill1", "skill2"]
-    )
-    announce = DeviceAnnounce(device=info)
-    assert announce.device.device_id == "test_001"
-    assert announce.device.wisdom == 50
-
-def test_brain_status_no_brain():
-    status = BrainStatus(brain_id=None, reason="no_candidate")
-    assert status.brain_id is None
-    assert status.reason == "no_candidate"
-
-def test_actor_state_operations():
-    state = ActorState(device_id="test_001")
-    assert state.current is None
-    assert state.history == []
-    
-    state.update_on_receive("test_op")
-    assert state.current == "test_op"
-    
-    state.update_on_complete(True)
-    assert state.current is None
-    assert "test_op" in state.history
+__all__ = [
+    "DeviceInfo",
+    "TaskRequest", 
+    "TaskDispatch",
+    "TaskResponse",
+    "TaskCollaborate",
+    "TaskTimeout",
+    "TaskNotify",
+    "DeviceAnnounce",
+    "DeviceHeartbeat",
+    "DeviceOffline",
+    "MsgType",
+    "TopicPrefix",
+    "DoozException",
+    "AuthError",
+    "TenantNotFoundError", 
+    "DeviceNotFoundError",
+    "LLMError",
+]
 ```
 
-- [ ] **Step 2: 运行测试验证失败**
-
-```bash
-cd /Users/taoluo/projects/gcode/dooz
-pytest tests/test_types.py -v
-```
-
-Expected: FAIL (ModuleNotFoundError: core.types)
-
-- [ ] **Step 3: 实现 core/types.py**
+- [ ] **Step 2: 创建 server/core/protocol.py**
 
 ```python
-# core/types.py
+"""消息协议常量定义."""
+
+from enum import Enum
+
+
+class MsgType(Enum):
+    """消息类型."""
+    DEVICE_ANNOUNCE = "device/announce"
+    DEVICE_HEARTBEAT = "device/heartbeat"
+    DEVICE_OFFLINE = "device/offline"
+    TASK_REQUEST = "task/request"
+    TASK_DISPATCH = "task/dispatch"
+    TASK_RESPONSE = "task/response"
+    TASK_COLLABORATE = "task/collaborate"
+    TASK_TIMEOUT = "task/timeout"
+    TASK_NOTIFY = "task/notify"
+
+
+class TopicPrefix:
+    """Topic 前缀常量."""
+    BASE = "dooz"
+    
+    @staticmethod
+    def for_tenant(tenant_id: str) -> str:
+        """获取租户的 Topic 前缀."""
+        return f"{TopicPrefix.BASE}/{tenant_id}"
+    
+    @staticmethod
+    def device_announce(tenant_id: str) -> str:
+        return f"{TopicPrefix.for_tenant(tenant_id)}/device/announce"
+    
+    @staticmethod
+    def device_heartbeat(tenant_id: str) -> str:
+        return f"{TopicPrefix.for_tenant(tenant_id)}/device/heartbeat"
+    
+    @staticmethod
+    def device_offline(tenant_id: str) -> str:
+        return f"{TopicPrefix.for_tenant(tenant_id)}/device/offline"
+    
+    @staticmethod
+    def task_request(tenant_id: str) -> str:
+        return f"{TopicPrefix.for_tenant(tenant_id)}/task/request"
+    
+    @staticmethod
+    def task_dispatch(tenant_id: str) -> str:
+        return f"{TopicPrefix.for_tenant(tenant_id)}/task/dispatch"
+    
+    @staticmethod
+    def task_response(tenant_id: str) -> str:
+        return f"{TopicPrefix.for_tenant(tenant_id)}/task/response"
+    
+    @staticmethod
+    def task_collaborate(tenant_id: str) -> str:
+        return f"{TopicPrefix.for_tenant(tenant_id)}/task/collaborate"
+    
+    @staticmethod
+    def task_timeout(tenant_id: str) -> str:
+        return f"{TopicPrefix.for_tenant(tenant_id)}/task/timeout"
+    
+    @staticmethod
+    def task_notify(tenant_id: str) -> str:
+        return f"{TopicPrefix.for_tenant(tenant_id)}/task/notify"
+```
+
+- [ ] **Step 3: 创建 server/core/exceptions.py**
+
+```python
+"""异常定义."""
+
+
+class DoozException(Exception):
+    """基础异常."""
+    pass
+
+
+class AuthError(DoozException):
+    """认证错误."""
+    pass
+
+
+class TenantNotFoundError(DoozException):
+    """租户不存在."""
+    pass
+
+
+class DeviceNotFoundError(DoozException):
+    """设备不存在."""
+    pass
+
+
+class LLMError(DoozException):
+    """LLM 请求错误."""
+    pass
+
+
+class SessionNotFoundError(DoozException):
+    """Session 不存在."""
+    pass
+
+
+class TaskTimeoutError(DoozException):
+    """任务超时."""
+    pass
+```
+
+- [ ] **Step 4: 创建 server/core/types.py**
+
+```python
+"""消息类型定义."""
+
 from dataclasses import dataclass, field
 from typing import List, Dict, Optional
 from enum import Enum
 import time
-
-
-class MsgType(Enum):
-    DEVICE_ANNOUNCE = "device/announce"
-    DEVICE_HEARTBEAT = "device/heartbeat"
-    DEVICE_OFFLINE = "device/offline"
-    BRAIN_ELECTION = "brain/election"
-    BRAIN_STATUS = "brain/status"
-    TASK_REQUEST = "task/request"
-    TASK_DISPATCH = "task/dispatch"
-    TASK_RESPONSE = "task/response"
-    TASK_NOTIFY = "task/notify"
-    ACTOR_UPDATE = "actor/update"
+import uuid
 
 
 @dataclass
 class DeviceInfo:
+    """设备信息."""
     device_id: str
     name: str
     role: str
     wisdom: int
     output: bool
+    llm_enabled: bool = False
     skills: List[str] = field(default_factory=list)
+    tenant_id: str = ""
+    
+    def to_dict(self) -> dict:
+        return {
+            "device_id": self.device_id,
+            "name": self.name,
+            "role": self.role,
+            "wisdom": self.wisdom,
+            "output": self.output,
+            "llm_enabled": self.llm_enabled,
+            "skills": self.skills,
+        }
 
 
 @dataclass
 class DeviceAnnounce:
-    msg_type: str = MsgType.DEVICE_ANNOUNCE.value
+    """设备上线消息."""
+    msg_type: str = "device/announce"
     device: Optional[DeviceInfo] = None
     timestamp: float = field(default_factory=time.time)
 
 
 @dataclass
 class DeviceHeartbeat:
-    msg_type: str = MsgType.DEVICE_HEARTBEAT.value
+    """设备心跳."""
+    msg_type: str = "device/heartbeat"
     device_id: str = ""
     timestamp: float = field(default_factory=time.time)
 
 
 @dataclass
 class DeviceOffline:
-    msg_type: str = MsgType.DEVICE_OFFLINE.value
+    """设备离线."""
+    msg_type: str = "device/offline"
     device_id: str = ""
     timestamp: float = field(default_factory=time.time)
 
 
 @dataclass
-class BrainStatus:
-    msg_type: str = MsgType.BRAIN_STATUS.value
-    brain_id: Optional[str] = None
-    wisdom_threshold: int = 50
-    reason: str = "no_candidate"  # "highest_wisdom" or "no_candidate"
-    timestamp: float = field(default_factory=time.time)
-
-
-@dataclass
 class TaskRequest:
-    msg_type: str = MsgType.TASK_REQUEST.value
-    request_id: str = ""
+    """用户请求."""
+    msg_type: str = "task/request"
+    request_id: str = field(default_factory=lambda: str(uuid.uuid4()))
     text: str = ""
     requester_id: str = ""
     timestamp: float = field(default_factory=time.time)
+    
+    def to_dict(self) -> dict:
+        return {
+            "msg_type": self.msg_type,
+            "request_id": self.request_id,
+            "text": self.text,
+            "requester_id": self.requester_id,
+            "timestamp": self.timestamp,
+        }
 
 
 @dataclass
 class TaskDispatch:
-    msg_type: str = MsgType.TASK_DISPATCH.value
+    """任务分发."""
+    msg_type: str = "task/dispatch"
+    request_id: str = ""
+    task_id: str = field(default_factory=lambda: str(uuid.uuid4()))
+    skill_name: str = ""
+    parameters: Dict[str, str] = field(default_factory=dict)
+    executor_id: str = ""  # 为空则广播
+    requires_llm: bool = False
+    collaborate_with: List[str] = field(default_factory=list)
+    timeout: int = 30
+    timestamp: float = field(default_factory=time.time)
+    
+    def to_dict(self) -> dict:
+        return {
+            "msg_type": self.msg_type,
+            "request_id": self.request_id,
+            "task_id": self.task_id,
+            "skill_name": self.skill_name,
+            "parameters": self.parameters,
+            "executor_id": self.executor_id,
+            "requires_llm": self.requires_llm,
+            "collaborate_with": self.collaborate_with,
+            "timeout": self.timeout,
+            "timestamp": self.timestamp,
+        }
+
+
+@dataclass
+class TaskResponse:
+    """任务响应."""
+    msg_type: str = "task/response"
+    request_id: str = ""
+    task_id: str = ""
+    success: bool = False
+    result: str = ""
+    executor_id: str = ""
+    timestamp: float = field(default_factory=time.time)
+    
+    def to_dict(self) -> dict:
+        return {
+            "msg_type": self.msg_type,
+            "request_id": self.request_id,
+            "task_id": self.task_id,
+            "success": self.success,
+            "result": self.result,
+            "executor_id": self.executor_id,
+            "timestamp": self.timestamp,
+        }
+
+
+@dataclass
+class TaskCollaborate:
+    """设备间协作请求."""
+    msg_type: str = "task/collaborate"
+    parent_task_id: str = ""
     request_id: str = ""
     skill_name: str = ""
     parameters: Dict[str, str] = field(default_factory=dict)
+    target_skill: str = ""
     executor_id: str = ""
+    timeout: int = 30
+    timestamp: float = field(default_factory=time.time)
+    
+    def to_dict(self) -> dict:
+        return {
+            "msg_type": self.msg_type,
+            "parent_task_id": self.parent_task_id,
+            "request_id": self.request_id,
+            "skill_name": self.skill_name,
+            "parameters": self.parameters,
+            "target_skill": self.target_skill,
+            "executor_id": self.executor_id,
+            "timeout": self.timeout,
+            "timestamp": self.timestamp,
+        }
+
+
+@dataclass
+class TaskTimeout:
+    """任务超时."""
+    msg_type: str = "task/timeout"
+    request_id: str = ""
+    task_id: str = ""
+    reason: str = "no_agent_response"
+    timestamp: float = field(default_factory=time.time)
+    
+    def to_dict(self) -> dict:
+        return {
+            "msg_type": self.msg_type,
+            "request_id": self.request_id,
+            "task_id": self.task_id,
+            "reason": self.reason,
+            "timestamp": self.timestamp,
+        }
+
+
+@dataclass
+class TaskNotify:
+    """通知用户."""
+    msg_type: str = "task/notify"
+    request_id: str = ""
+    message: str = ""
+    source_id: str = ""
+    timestamp: float = field(default_factory=time.time)
+    
+    def to_dict(self) -> dict:
+        return {
+            "msg_type": self.msg_type,
+            "request_id": self.request_id,
+            "message": self.message,
+            "source_id": self.source_id,
+            "timestamp": self.timestamp,
+        }
+```
+
+- [ ] **Step 5: 运行测试验证**
+
+Run: `python -c "from server.core import MsgType, DeviceInfo, TaskRequest; print('OK')"`
+Expected: 无错误输出
+
+- [ ] **Step 6: Commit**
+
+```bash
+git add server/core/
+git commit -m "feat(server): add core types and protocol definitions"
+```
+
+---
+
+## Chunk 2: Server API + Auth
+
+### Task 2.1: FastAPI 入口 + 依赖项
+
+**Files:**
+- Create: `server/main.py`
+- Modify: `requirements.txt`
+
+- [ ] **Step 1: 更新 requirements.txt**
+
+```txt
+fastapi>=0.104.0
+uvicorn>=0.24.0
+python-jose[cryptography]>=3.3.0
+passlib[bcrypt]>=1.7.4
+python-multipart>=0.0.6
+httpx>=0.25.0
+pyyaml>=6.0.1
+pydantic>=2.0.0
+pydantic-settings>=2.0.0
+websockets>=12.0
+aiohttp>=3.9.0
+```
+
+- [ ] **Step 2: 创建 server/main.py**
+
+```python
+"""dooz Server - FastAPI 入口."""
+
+import logging
+from contextlib import asynccontextmanager
+
+from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
+
+from server.api import auth, tenant, chat, llm, websocket
+from server.tenant.manager import TenantManager
+from server.transport.fastdds_gateway import FastDDSGateway
+
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+)
+logger = logging.getLogger(__name__)
+
+
+# 全局状态
+tenant_manager: TenantManager = None
+fastdds_gateway: FastDDSGateway = None
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """应用生命周期管理."""
+    global tenant_manager, fastdds_gateway
+    
+    # 启动时初始化
+    logger.info("Starting dooz server...")
+    
+    tenant_manager = TenantManager()
+    fastdds_gateway = FastDDSGateway()
+    
+    # 加载已存在的租户
+    await tenant_manager.load_tenants()
+    
+    # 启动 FastDDS Gateway
+    await fastdds_gateway.start()
+    
+    logger.info("dooz server started")
+    
+    yield
+    
+    # 关闭时清理
+    logger.info("Shutting down dooz server...")
+    await fastdds_gateway.stop()
+    logger.info("dooz server stopped")
+
+
+app = FastAPI(
+    title="dooz API",
+    description="Distributed Multi-Agent Collaboration System",
+    version="0.1.0",
+    lifespan=lifespan,
+)
+
+# CORS
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+# 注册路由
+app.include_router(auth.router, prefix="/auth", tags=["auth"])
+app.include_router(tenant.router, prefix="/tenant", tags=["tenant"])
+app.include_router(chat.router, prefix="/tenant/{tenant_id}/chat", tags=["chat"])
+app.include_router(llm.router, prefix="/tenant/{tenant_id}/llm", tags=["llm"])
+app.include_router(websocket.router, prefix="/ws", tags=["websocket"])
+
+
+@app.get("/health")
+async def health_check():
+    """健康检查."""
+    return {"status": "ok"}
+
+
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run(app, host="0.0.0.0", port=8000)
+```
+
+- [ ] **Step 3: 创建 server/api/__init__.py**
+
+```python
+"""API package."""
+
+from . import auth, tenant, chat, llm, websocket
+
+__all__ = ["auth", "tenant", "chat", "llm", "websocket"]
+```
+
+- [ ] **Step 4: Commit**
+
+```bash
+git add server/main.py requirements.txt server/api/
+git commit -m "feat(server): add FastAPI entry point and dependencies"
+```
+
+---
+
+### Task 2.2: OAuth2 认证
+
+**Files:**
+- Create: `server/api/auth.py`
+
+- [ ] **Step 1: 创建 server/api/auth.py**
+
+```python
+"""OAuth2 认证 API."""
+
+from datetime import datetime, timedelta
+from typing import Optional
+
+from fastapi import APIRouter, HTTPException, Depends
+from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
+from pydantic import BaseModel
+from jose import JWTError, jwt
+
+from server.core.exceptions import AuthError
+
+router = APIRouter()
+
+# JWT 配置 (MVP: 简化，实际应该从环境变量或配置读取)
+SECRET_KEY = "dooz-secret-key-change-in-production"
+ALGORITHM = "HS256"
+ACCESS_TOKEN_EXPIRE_MINUTES = 3600
+
+# OAuth2 scheme
+oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/auth/token")
+
+
+# 简化的客户端存储 (MVP: 内存存储)
+# 实际应该使用数据库
+_client_store: dict = {}
+
+
+class Token(BaseModel):
+    """Token 响应."""
+    access_token: str
+    token_type: str
+    expires_in: int
+
+
+class ClientCredentials(BaseModel):
+    """客户端凭证."""
+    client_id: str
+    client_secret: str
+    tenant_id: str
+
+
+def create_access_token(data: dict, expires_delta: Optional[timedelta] = None) -> str:
+    """创建 JWT token."""
+    to_encode = data.copy()
+    if expires_delta:
+        expire = datetime.utcnow() + expires_delta
+    else:
+        expire = datetime.utcnow() + timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
+    
+    to_encode.update({"exp": expire})
+    encoded_jwt = jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
+    return encoded_jwt
+
+
+def verify_token(token: str) -> dict:
+    """验证 token."""
+    try:
+        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+        return payload
+    except JWTError:
+        raise AuthError("Invalid token")
+
+
+async def get_current_client(token: str = Depends(oauth2_scheme)) -> dict:
+    """获取当前认证的客户端."""
+    payload = verify_token(token)
+    client_id = payload.get("sub")
+    tenant_id = payload.get("tenant_id")
+    
+    if not client_id or not tenant_id:
+        raise AuthError("Invalid token payload")
+    
+    return {"client_id": client_id, "tenant_id": tenant_id}
+
+
+@router.post("/token", response_model=Token)
+async def login(form_data: OAuth2PasswordRequestForm = Depends()):
+    """
+    OAuth2 Token 端点.
+    
+    支持 client_credentials 模式:
+    - username: client_id
+    - password: client_secret
+    """
+    client_id = form_data.username
+    client_secret = form_data.password
+    
+    # 验证客户端 (MVP: 简化验证)
+    # 实际应该从数据库验证
+    if not _client_store.get(client_id):
+        raise HTTPException(status_code=401, detail="Invalid client credentials")
+    
+    stored_secret = _client_store[client_id].get("client_secret")
+    if stored_secret != client_secret:
+        raise HTTPException(status_code=401, detail="Invalid client credentials")
+    
+    tenant_id = _client_store[client_id].get("tenant_id")
+    
+    # 创建 token
+    access_token = create_access_token(
+        data={"sub": client_id, "tenant_id": tenant_id}
+    )
+    
+    return Token(
+        access_token=access_token,
+        token_type="bearer",
+        expires_in=ACCESS_TOKEN_EXPIRE_MINUTES * 60,
+    )
+
+
+def register_client(client_id: str, client_secret: str, tenant_id: str):
+    """注册客户端 (供租户创建时调用)."""
+    _client_store[client_id] = {
+        "client_secret": client_secret,
+        "tenant_id": tenant_id,
+    }
+```
+
+- [ ] **Step 2: 测试导入**
+
+Run: `python -c "from server.api.auth import router; print('OK')"`
+Expected: 无错误
+
+- [ ] **Step 3: Commit**
+
+```bash
+git add server/api/auth.py
+git commit -m "feat(server): add OAuth2 authentication API"
+```
+
+---
+
+### Task 2.3: 租户管理 API
+
+**Files:**
+- Create: `server/tenant/config.py`
+- Create: `server/tenant/manager.py`
+- Create: `server/api/tenant.py`
+
+- [ ] **Step 1: 创建 server/tenant/config.py**
+
+```python
+"""租户配置模型."""
+
+from dataclasses import dataclass, field
+from typing import List, Dict, Optional
+import yaml
+from pathlib import Path
+
+
+@dataclass
+class LLMProvider:
+    """LLM Provider 配置."""
+    url: str
+    api_key: str
+    model: str = "gpt-4"
+
+
+@dataclass
+class Profile:
+    """用户画像."""
+    name: str = ""
+    preferences: List[str] = field(default_factory=list)
+    family_members: List[str] = field(default_factory=list)
+
+
+@dataclass
+class Soul:
+    """灵魂设定."""
+    name: str = "助手"
+    personality: str = "温暖、贴心"
+    role: str = "管家"
+
+
+@dataclass
+class Memory:
+    """记忆 (MVP: 简化为文本列表)."""
+    items: List[str] = field(default_factory=list)
+    
+    def add(self, content: str):
+        """添加记忆."""
+        self.items.append(content)
+    
+    def get_relevant(self, query: str) -> str:
+        """获取相关记忆 (MVP: 简单返回所有)."""
+        return "\n".join(self.items[-10:]) if self.items else "无记忆"
+
+
+@dataclass
+class TenantConfig:
+    """租户配置."""
+    tenant_id: str
+    name: str
+    llm_provider: LLMProvider
+    profile: Profile = field(default_factory=Profile)
+    memory: Memory = field(default_factory=Memory)
+    soul: Soul = field(default_factory=Soul)
+    
+    def to_dict(self) -> dict:
+        return {
+            "tenant_id": self.tenant_id,
+            "name": self.name,
+            "llm_provider": {
+                "url": self.llm_provider.url,
+                "api_key": self.llm_provider.api_key,
+                "model": self.llm_provider.model,
+            },
+            "profile": {
+                "name": self.profile.name,
+                "preferences": self.profile.preferences,
+                "family_members": self.profile.family_members,
+            },
+            "soul": {
+                "name": self.soul.name,
+                "personality": self.soul.personality,
+                "role": self.soul.role,
+            },
+        }
+    
+    @classmethod
+    def from_dict(cls, data: dict) -> "TenantConfig":
+        return cls(
+            tenant_id=data["tenant_id"],
+            name=data["name"],
+            llm_provider=LLMProvider(**data.get("llm_provider", {})),
+            profile=Profile(**data.get("profile", {})),
+            soul=Soul(**data.get("soul", {})),
+        )
+```
+
+- [ ] **Step 2: 创建 server/tenant/manager.py**
+
+```python
+"""租户管理器."""
+
+import logging
+import uuid
+from typing import Dict, Optional
+
+from server.tenant.config import TenantConfig, LLMProvider, Profile, Soul, Memory
+from server.core.exceptions import TenantNotFoundError
+
+logger = logging.getLogger(__name__)
+
+
+class TenantManager:
+    """租户管理器."""
+    
+    def __init__(self):
+        self._tenants: Dict[str, TenantConfig] = {}
+    
+    async def load_tenants(self):
+        """加载租户配置 (MVP: 从内存或配置文件加载)."""
+        logger.info("Loading tenants...")
+        # MVP: 暂不实现持久化加载
+    
+    def create_tenant(self, name: str, llm_url: str, llm_api_key: str, llm_model: str = "gpt-4") -> TenantConfig:
+        """创建租户."""
+        tenant_id = f"tenant-{uuid.uuid4().hex[:8]}"
+        
+        config = TenantConfig(
+            tenant_id=tenant_id,
+            name=name,
+            llm_provider=LLMProvider(
+                url=llm_url,
+                api_key=llm_api_key,
+                model=llm_model,
+            ),
+            profile=Profile(),
+            soul=Soul(),
+            memory=Memory(),
+        )
+        
+        self._tenants[tenant_id] = config
+        logger.info(f"Created tenant: {tenant_id}")
+        
+        return config
+    
+    def get_tenant(self, tenant_id: str) -> TenantConfig:
+        """获取租户配置."""
+        if tenant_id not in self._tenants:
+            raise TenantNotFoundError(f"Tenant {tenant_id} not found")
+        return self._tenants[tenant_id]
+    
+    def list_tenants(self) -> list:
+        """列出所有租户."""
+        return [t.to_dict() for t in self._tenants.values()]
+    
+    def update_tenant(self, tenant_id: str, **kwargs) -> TenantConfig:
+        """更新租户配置."""
+        config = self.get_tenant(tenant_id)
+        
+        if "name" in kwargs:
+            config.name = kwargs["name"]
+        if "llm_provider" in kwargs:
+            config.llm_provider = LLMProvider(**kwargs["llm_provider"])
+        if "profile" in kwargs:
+            config.profile = Profile(**kwargs["profile"])
+        if "soul" in kwargs:
+            config.soul = Soul(**kwargs["soul"])
+        
+        return config
+    
+    def add_memory(self, tenant_id: str, content: str):
+        """添加记忆."""
+        config = self.get_tenant(tenant_id)
+        config.memory.add(content)
+    
+    def get_memory(self, tenant_id: str) -> list:
+        """获取记忆."""
+        config = self.get_tenant(tenant_id)
+        return config.memory.items
+```
+
+- [ ] **Step 3: 创建 server/api/tenant.py**
+
+```python
+"""租户管理 API."""
+
+from fastapi import APIRouter, HTTPException, Depends
+from pydantic import BaseModel
+
+from server.tenant.manager import TenantManager
+from server.tenant.config import TenantConfig
+from server.api.auth import get_current_client
+
+router = APIRouter()
+
+# 全局租户管理器 (通过 app state 注入)
+_tenant_manager: TenantManager = None
+
+
+def set_tenant_manager(manager: TenantManager):
+    """设置租户管理器."""
+    global _tenant_manager
+    _tenant_manager = manager
+
+
+class CreateTenantRequest(BaseModel):
+    """创建租户请求."""
+    name: str
+    llm_url: str
+    llm_api_key: str
+    llm_model: str = "gpt-4"
+
+
+class UpdateProfileRequest(BaseModel):
+    """更新画像请求."""
+    name: str = None
+    preferences: list = None
+    family_members: list = None
+
+
+class UpdateSoulRequest(BaseModel):
+    """更新灵魂设定请求."""
+    name: str = None
+    personality: str = None
+    role: str = None
+
+
+class AddMemoryRequest(BaseModel):
+    """添加记忆请求."""
+    content: str
+
+
+@router.post("/create", response_model=dict)
+async def create_tenant(request: CreateTenantRequest):
+    """创建租户."""
+    if _tenant_manager is None:
+        raise HTTPException(status_code=500, detail="Tenant manager not initialized")
+    
+    config = _tenant_manager.create_tenant(
+        name=request.name,
+        llm_url=request.llm_url,
+        llm_api_key=request.llm_api_key,
+        llm_model=request.llm_model,
+    )
+    
+    return config.to_dict()
+
+
+@router.get("/{tenant_id}/config", response_model=dict)
+async def get_tenant_config(tenant_id: str, client: dict = Depends(get_current_client)):
+    """获取租户配置."""
+    if client["tenant_id"] != tenant_id:
+        raise HTTPException(status_code=403, detail="Forbidden")
+    
+    config = _tenant_manager.get_tenant(tenant_id)
+    return config.to_dict()
+
+
+@router.get("/{tenant_id}/profile", response_model=dict)
+async def get_profile(tenant_id: str, client: dict = Depends(get_current_client)):
+    """获取用户画像."""
+    if client["tenant_id"] != tenant_id:
+        raise HTTPException(status_code=403, detail="Forbidden")
+    
+    config = _tenant_manager.get_tenant(tenant_id)
+    return {
+        "name": config.profile.name,
+        "preferences": config.profile.preferences,
+        "family_members": config.profile.family_members,
+    }
+
+
+@router.put("/{tenant_id}/profile")
+async def update_profile(
+    tenant_id: str, 
+    request: UpdateProfileRequest,
+    client: dict = Depends(get_current_client)
+):
+    """更新用户画像."""
+    if client["tenant_id"] != tenant_id:
+        raise HTTPException(status_code=403, detail="Forbidden")
+    
+    kwargs = {k: v for k, v in request.dict().items() if v is not None}
+    config = _tenant_manager.update_tenant(tenant_id, profile=kwargs)
+    return {"status": "ok", "profile": config.profile.__dict__}
+
+
+@router.get("/{tenant_id}/soul", response_model=dict)
+async def get_soul(tenant_id: str, client: dict = Depends(get_current_client)):
+    """获取灵魂设定."""
+    if client["tenant_id"] != tenant_id:
+        raise HTTPException(status_code=403, detail="Forbidden")
+    
+    config = _tenant_manager.get_tenant(tenant_id)
+    return {
+        "name": config.soul.name,
+        "personality": config.soul.personality,
+        "role": config.soul.role,
+    }
+
+
+@router.put("/{tenant_id}/soul")
+async def update_soul(
+    tenant_id: str,
+    request: UpdateSoulRequest,
+    client: dict = Depends(get_current_client)
+):
+    """更新灵魂设定."""
+    if client["tenant_id"] != tenant_id:
+        raise HTTPException(status_code=403, detail="Forbidden")
+    
+    kwargs = {k: v for k, v in request.dict().items() if v is not None}
+    config = _tenant_manager.update_tenant(tenant_id, soul=kwargs)
+    return {"status": "ok", "soul": config.soul.__dict__}
+
+
+@router.get("/{tenant_id}/memory", response_model=list)
+async def get_memory(tenant_id: str, client: dict = Depends(get_current_client)):
+    """获取记忆列表."""
+    if client["tenant_id"] != tenant_id:
+        raise HTTPException(status_code=403, detail="Forbidden")
+    
+    return _tenant_manager.get_memory(tenant_id)
+
+
+@router.post("/{tenant_id}/memory")
+async def add_memory(
+    tenant_id: str,
+    request: AddMemoryRequest,
+    client: dict = Depends(get_current_client)
+):
+    """添加记忆."""
+    if client["tenant_id"] != tenant_id:
+        raise HTTPException(status_code=403, detail="Forbidden")
+    
+    _tenant_manager.add_memory(tenant_id, request.content)
+    return {"status": "ok"}
+```
+
+- [ ] **Step 4: 测试导入**
+
+Run: `python -c "from server.tenant.manager import TenantManager; print('OK')"`
+Expected: 无错误
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add server/tenant/ server/api/tenant.py
+git commit -m "feat(server): add tenant management API"
+```
+
+---
+
+## Chunk 3: FastDDS Gateway + WebSocket
+
+### Task 3.1: FastDDS Gateway (MVP: 内存总线模拟)
+
+**Files:**
+- Create: `server/transport/fastdds_gateway.py`
+- Create: `server/transport/participant.py`
+
+- [ ] **Step 1: 创建 server/transport/__init__.py**
+
+```python
+"""Transport package."""
+
+__all__ = ["fastdds_gateway", "participant"]
+```
+
+- [ ] **Step 2: 创建 server/transport/participant.py (MVP: 简化为内存)**
+
+```python
+"""FastDDS Participant 管理 (MVP: 内存模拟)."""
+
+import logging
+import threading
+from typing import Dict, List, Callable, Any
+
+logger = logging.getLogger(__name__)
+
+
+class TenantParticipant:
+    """租户的 FastDDS Participant (MVP: 内存模拟).
+    
+    实际实现应该使用 fastdds Python 绑定。
+    """
+    
+    def __init__(self, tenant_id: str):
+        self.tenant_id = tenant_id
+        self._subscribers: Dict[str, List[Callable]] = {}
+        self._publishers: Dict[str, bool] = {}
+        self._lock = threading.Lock()
+        self._running = False
+        
+    def create_publisher(self, topic_name: str):
+        """创建发布者."""
+        with self._lock:
+            self._publishers[topic_name] = True
+        logger.info(f"[Tenant {self.tenant_id}] Publisher created: {topic_name}")
+        
+    def create_subscriber(self, topic_name: str, callback: Callable):
+        """创建订阅者."""
+        with self._lock:
+            if topic_name not in self._subscribers:
+                self._subscribers[topic_name] = []
+            if callback not in self._subscribers[topic_name]:
+                self._subscribers[topic_name].append(callback)
+        logger.info(f"[Tenant {self.tenant_id}] Subscriber created: {topic_name}")
+        
+    def publish(self, topic_name: str, message: Any, sender_id: str = None):
+        """发布消息."""
+        with self._lock:
+            subscribers = self._subscribers.get(topic_name, []).copy()
+        
+        for callback in subscribers:
+            try:
+                if isinstance(message, dict):
+                    message["sender_id"] = sender_id
+                callback(message)
+            except Exception as e:
+                logger.error(f"[Tenant {self.tenant_id}] Error in subscriber: {e}")
+                
+    def remove_subscriber(self, topic_name: str, callback: Callable):
+        """移除订阅者."""
+        with self._lock:
+            if topic_name in self._subscribers:
+                if callback in self._subscribers[topic_name]:
+                    self._subscribers[topic_name].remove(callback)
+                    
+    def start(self):
+        """启动."""
+        self._running = True
+        logger.info(f"[Tenant {self.tenant_id}] Participant started")
+        
+    def stop(self):
+        """停止."""
+        self._running = False
+        with self._lock:
+            self._subscribers.clear()
+        logger.info(f"[Tenant {self.tenant_id}] Participant stopped")
+
+
+class ParticipantManager:
+    """Participant 管理器."""
+    
+    def __init__(self):
+        self._participants: Dict[str, TenantParticipant] = {}
+        self._lock = threading.Lock()
+        
+    def get_or_create(self, tenant_id: str) -> TenantParticipant:
+        """获取或创建 Participant."""
+        with self._lock:
+            if tenant_id not in self._participants:
+                self._participants[tenant_id] = TenantParticipant(tenant_id)
+                self._participants[tenant_id].start()
+            return self._participants[tenant_id]
+        
+    def remove(self, tenant_id: str):
+        """移除 Participant."""
+        with self._lock:
+            if tenant_id in self._participants:
+                self._participants[tenant_id].stop()
+                del self._participants[tenant_id]
+                
+    def get(self, tenant_id: str) -> TenantParticipant:
+        """获取 Participant."""
+        return self._participants.get(tenant_id)
+```
+
+- [ ] **Step 3: 创建 server/transport/fastdds_gateway.py**
+
+```python
+"""FastDDS Gateway - WebSocket ↔ FastDDS 桥接."""
+
+import asyncio
+import logging
+import json
+from typing import Dict, Set
+
+from fastapi import WebSocket
+
+from server.transport.participant import ParticipantManager
+from server.core.protocol import TopicPrefix, MsgType
+
+logger = logging.getLogger(__name__)
+
+
+class ClientConnection:
+    """客户端连接."""
+    
+    def __init__(self, websocket: WebSocket, client_id: str, tenant_id: str):
+        self.websocket = websocket
+        self.client_id = client_id
+        self.tenant_id = tenant_id
+        self._subscriptions: Set[str] = set()
+        
+    async def send(self, message: dict):
+        """发送消息给客户端."""
+        try:
+            await self.websocket.send_json(message)
+        except Exception as e:
+            logger.error(f"Error sending to {self.client_id}: {e}")
+            
+    async def send_text(self, text: str):
+        """发送文本消息."""
+        try:
+            await self.websocket.send_text(text)
+        except Exception as e:
+            logger.error(f"Error sending to {self.client_id}: {e}")
+
+
+class FastDDSGateway:
+    """FastDDS Gateway.
+    
+    MVP: 使用内存总线模拟
+    生产: 使用 FastDDS Python 绑定
+    """
+    
+    def __init__(self):
+        self.participant_manager = ParticipantManager()
+        self._connections: Dict[str, ClientConnection] = {}  # client_id -> connection
+        self._topic_callbacks: Dict[str, Dict[str, callable]] = {}  # tenant_id -> {topic: {client_id: callback}}
+        self._lock = asyncio.Lock()
+        
+    async def start(self):
+        """启动 Gateway."""
+        logger.info("FastDDS Gateway started (MVP: memory mode)")
+        
+    async def stop(self):
+        """停止 Gateway."""
+        self._connections.clear()
+        logger.info("FastDDS Gateway stopped")
+        
+    async def connect(self, websocket: WebSocket, client_id: str, tenant_id: str) -> ClientConnection:
+        """客户端连接."""
+        async with self._lock:
+            connection = ClientConnection(websocket, client_id, tenant_id)
+            self._connections[client_id] = connection
+            
+            # 获取或创建租户 Participant
+            participant = self.participant_manager.get_or_create(tenant_id)
+            
+            # 注册默认回调
+            self._register_default_topics(tenant_id, client_id, connection)
+            
+        logger.info(f"Client {client_id} connected to tenant {tenant_id}")
+        return connection
+    
+    async def disconnect(self, client_id: str):
+        """客户端断开."""
+        async with self._lock:
+            if client_id in self._connections:
+                conn = self._connections.pop(client_id)
+                logger.info(f"Client {client_id} disconnected")
+                
+    def _register_default_topics(self, tenant_id: str, client_id: str, connection: ClientConnection):
+        """注册默认话题回调."""
+        topics = [
+            TopicPrefix.task_dispatch(tenant_id),
+            TopicPrefix.task_response(tenant_id),
+            TopicPrefix.task_notify(tenant_id),
+            TopicPrefix.task_timeout(tenant_id),
+            TopicPrefix.device_announce(tenant_id),
+            TopicPrefix.device_offline(tenant_id),
+        ]
+        
+        for topic in topics:
+            self.subscribe(tenant_id, client_id, topic, connection)
+            
+    def subscribe(self, tenant_id: str, client_id: str, topic: str, connection: ClientConnection):
+        """订阅话题."""
+        participant = self.participant_manager.get(tenant_id)
+        if not participant:
+            logger.warning(f"Tenant {tenant_id} not found")
+            return
+            
+        async def callback(message: dict):
+            # 检查是否是发给特定客户端的
+            executor_id = message.get("executor_id", "")
+            if executor_id and executor_id != client_id:
+                return  # 不是发给我的
+            await connection.send(message)
+            
+        participant.create_subscriber(topic, callback)
+        
+    def publish(self, tenant_id: str, topic: str, message: dict, sender_id: str = None):
+        """发布消息."""
+        participant = self.participant_manager.get(tenant_id)
+        if not participant:
+            logger.warning(f"Tenant {tenant_id} not found")
+            return
+            
+        # 确保 publisher 存在
+        participant.create_publisher(topic)
+        participant.publish(topic, message, sender_id)
+        
+    def get_participant(self, tenant_id: str):
+        """获取租户的 Participant."""
+        return self.participant_manager.get(tenant_id)
+```
+
+- [ ] **Step 4: 测试导入**
+
+Run: `python -c "from server.transport.fastdds_gateway import FastDDSGateway; print('OK')"`
+Expected: 无错误
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add server/transport/
+git commit -m "feat(server): add FastDDS Gateway (MVP memory mode)"
+```
+
+---
+
+### Task 3.2: WebSocket API
+
+**Files:**
+- Create: `server/api/websocket.py`
+
+- [ ] **Step 1: 创建 server/api/websocket.py**
+
+```python
+"""WebSocket API."""
+
+import asyncio
+import logging
+from typing import Dict
+
+from fastapi import APIRouter, WebSocket, WebSocketDisconnect
+from fastapi.responses import PlainTextResponse
+
+from server.transport.fastdds_gateway import FastDDSGateway, ClientConnection
+from server.core.protocol import TopicPrefix
+
+logger = logging.getLogger(__name__)
+
+router = APIRouter()
+
+# Gateway 引用 (通过 app 注入)
+_gateway: FastDDSGateway = None
+
+
+def set_gateway(gateway: FastDDSGateway):
+    """设置 Gateway."""
+    global _gateway
+    _gateway = gateway
+
+
+@router.websocket("/tenant/{tenant_id}")
+async def websocket_endpoint(websocket: WebSocket, tenant_id: str):
+    """
+    WebSocket 端点.
+    
+    连接参数:
+    - token: OAuth2 access token
+    """
+    # 获取 token
+    token = websocket.query_params.get("token")
+    if not token:
+        await websocket.close(code=4001, reason="Missing token")
+        return
+        
+    # 验证 token (简化)
+    try:
+        from server.api.auth import verify_token
+        payload = verify_token(token)
+        client_id = payload.get("sub")
+        if payload.get("tenant_id") != tenant_id:
+            await websocket.close(code=4003, reason="Tenant mismatch")
+            return
+    except Exception as e:
+        logger.error(f"Token validation failed: {e}")
+        await websocket.close(code=4002, reason="Invalid token")
+        return
+        
+    # 接受连接
+    await websocket.accept()
+    
+    # 连接 Gateway
+    if _gateway is None:
+        await websocket.close(code=5000, reason="Gateway not initialized")
+        return
+        
+    connection = await _gateway.connect(websocket, client_id, tenant_id)
+    
+    try:
+        # 处理消息循环
+        while True:
+            data = await websocket.receive_text()
+            
+            try:
+                message = json.loads(data)
+                msg_type = message.get("msg_type", "")
+                
+                # 确定 topic
+                topic_map = {
+                    "device/announce": TopicPrefix.device_announce,
+                    "device/heartbeat": TopicPrefix.device_heartbeat,
+                    "device/offline": TopicPrefix.device_offline,
+                    "task/request": TopicPrefix.task_request,
+                    "task/dispatch": TopicPrefix.task_dispatch,
+                    "task/response": TopicPrefix.task_response,
+                    "task/collaborate": TopicPrefix.task_collaborate,
+                }
+                
+                topic_func = topic_map.get(msg_type)
+                if topic_func:
+                    topic = topic_func(tenant_id)
+                    _gateway.publish(tenant_id, topic, message, sender_id=client_id)
+                else:
+                    logger.warning(f"Unknown msg_type: {msg_type}")
+                    
+            except json.JSONDecodeError:
+                logger.error(f"Invalid JSON: {data}")
+                
+    except WebSocketDisconnect:
+        logger.info(f"Client {client_id} disconnected")
+    finally:
+        await _gateway.disconnect(client_id)
+```
+
+- [ ] **Step 2: 测试导入**
+
+Run: `python -c "from server.api.websocket import router; print('OK')"`
+Expected: 无错误
+
+- [ ] **Step 3: Commit**
+
+```bash
+git add server/api/websocket.py
+git commit -m "feat(server): add WebSocket API for device connection"
+```
+
+---
+
+## Chunk 4: LLM Gateway + Context
+
+### Task 4.1: LLM Gateway
+
+**Files:**
+- Create: `server/llm/gateway.py`
+- Create: `server/llm/context.py`
+- Create: `server/api/llm.py`
+
+- [ ] **Step 1: 创建 server/llm/context.py**
+
+```python
+"""LLM Context 组装."""
+
+from typing import List, Dict, Any
+
+from server.tenant.config import TenantConfig
+
+
+class LLMContextBuilder:
+    """LLM Context 建造者."""
+    
+    def __init__(self, tenant_config: TenantConfig):
+        self.tenant = tenant_config
+        
+    def build_system_prompt(self) -> str:
+        """构建 system prompt."""
+        soul = self.tenant.soul
+        profile = self.tenant.profile
+        
+        return f"""你是 {soul.name}，{soul.personality}。
+你的职责是 {soul.role}。
+
+用户信息:
+- 姓名: {profile.name or '未设置'}
+- 偏好: {', '.join(profile.preferences) if profile.preferences else '未设置'}
+- 家庭成员: {', '.join(profile.family_members) if profile.family_members else '无'}
+
+你是一个智能助手，可以帮助用户管理家庭设备、回答问题、提供建议等。
+"""
+        
+    def build_chat_context(self, messages: List[Dict[str, str]], user_message: str = None) -> List[Dict[str, str]]:
+        """构建聊天上下文."""
+        context = []
+        
+        # System prompt
+        context.append({
+            "role": "system",
+            "content": self.build_system_prompt()
+        })
+        
+        # Memory (相关记忆)
+        if self.tenant.memory.items:
+            memory_content = "以下是之前对话中记录的重要信息:\n"
+            memory_content += "\n".join([f"- {m}" for m in self.tenant.memory.items[-10:]])
+            context.append({
+                "role": "system",
+                "content": memory_content
+            })
+        
+        # 历史消息 (简化: 只取最近 10 条)
+        for msg in messages[-10:]:
+            context.append(msg)
+            
+        # 当前用户消息
+        if user_message:
+            context.append({
+                "role": "user",
+                "content": user_message
+            })
+            
+        return context
+        
+    def build_task_analysis_prompt(self, task_text: str) -> str:
+        """构建任务分析 prompt."""
+        return f"""你是一个任务规划助手。请分析以下用户请求，并拆解为可执行的子任务。
+
+用户请求: {task_text}
+
+请以 JSON 格式返回任务拆解结果:
+{{
+    "intent": "用户意图",
+    "subtasks": [
+        {{
+            "skill_name": "需要的技能",
+            "parameters": {{"参数"}},
+            "target_devices": ["目标设备类型"],
+            "requires_llm": false
+        }}
+    ]
+}}
+
+只返回 JSON，不要其他内容。
+"""
+```
+
+- [ ] **Step 2: 创建 server/llm/gateway.py**
+
+```python
+"""LLM Gateway."""
+
+import logging
+import json
+from typing import List, Dict, Any, Optional
+
+import httpx
+
+from server.tenant.config import TenantConfig
+from server.llm.context import LLMContextBuilder
+from server.core.exceptions import LLMError
+
+logger = logging.getLogger(__name__)
+
+
+class LLMGateway:
+    """LLM 请求网关."""
+    
+    def __init__(self, tenant_config: TenantConfig):
+        self.tenant = tenant_config
+        self.context_builder = LLMContextBuilder(tenant_config)
+        
+    async def chat(self, messages: List[Dict[str, str]], system: str = None) -> str:
+        """发送聊天请求."""
+        provider = self.tenant.llm_provider
+        
+        # 构建请求
+        if system:
+            # 如果有额外 system prompt，插入到最前面
+            full_messages = [{"role": "system", "content": system}] + messages
+        else:
+            full_messages = messages
+            
+        headers = {
+            "Authorization": f"Bearer {provider.api_key}",
+            "Content-Type": "application/json"
+        }
+        
+        payload = {
+            "model": provider.model,
+            "messages": full_messages,
+            "temperature": 0.7,
+        }
+        
+        try:
+            async with httpx.AsyncClient(timeout=60.0) as client:
+                response = await client.post(
+                    provider.url,
+                    headers=headers,
+                    json=payload
+                )
+                response.raise_for_status()
+                
+                result = response.json()
+                return result["choices"][0]["message"]["content"]
+                
+        except httpx.HTTPStatusError as e:
+            logger.error(f"LLM HTTP error: {e.response.status_code} - {e.response.text}")
+            raise LLMError(f"LLM request failed: {e.response.status_code}")
+        except Exception as e:
+            logger.error(f"LLM error: {e}")
+            raise LLMError(f"LLM request failed: {e}")
+            
+    async def chat_with_context(self, user_message: str, history: List[Dict[str, str]] = None) -> str:
+        """使用完整上下文聊天."""
+        messages = self.context_builder.build_chat_context(
+            history or [],
+            user_message
+        )
+        return await self.chat(messages)
+        
+    async def analyze_task(self, task_text: str) -> Dict[str, Any]:
+        """分析任务并拆解 (用于 TaskCoordinator)."""
+        prompt = self.context_builder.build_task_analysis_prompt(task_text)
+        
+        result = await self.chat([
+            {"role": "user", "content": prompt}
+        ])
+        
+        # 解析 JSON
+        try:
+            # 尝试提取 JSON
+            if "```json" in result:
+                result = result.split("```json")[1].split("```")[0]
+            elif "```" in result:
+                result = result.split("```")[1].split("```")[0]
+                
+            return json.loads(result.strip())
+        except json.JSONDecodeError:
+            logger.error(f"Failed to parse task analysis: {result}")
+            return {
+                "intent": task_text,
+                "subtasks": []
+            }
+            
+    async def summarize_session(self, messages: List[Dict[str, str]]) -> str:
+        """总结会话 (用于生成 Memory)."""
+        history_text = "\n".join([
+            f"{msg['role']}: {msg['content'][:100]}..."
+            for msg in messages
+        ])
+        
+        prompt = f"""总结以下对话，提取关键信息:
+
+对话历史:
+{history_text}
+
+请以以下格式返回总结:
+1. 用户偏好和习惯:
+2. 需要避免的问题:
+3. 重要信息:
+
+只返回总结内容，不要其他内容。
+"""
+        
+        return await self.chat([{"role": "user", "content": prompt}])
+```
+
+- [ ] **Step 3: 创建 server/api/llm.py**
+
+```python
+"""LLM API."""
+
+from typing import List, Dict
+
+from fastapi import APIRouter, HTTPException, Depends
+from pydantic import BaseModel
+
+from server.api.auth import get_current_client
+from server.llm.gateway import LLMGateway
+from server.tenant.manager import TenantManager
+
+router = APIRouter()
+
+_tenant_manager: TenantManager = None
+
+
+def set_tenant_manager(manager: TenantManager):
+    """设置租户管理器."""
+    global _tenant_manager
+    _tenant_manager = manager
+
+
+class ChatRequest(BaseModel):
+    """聊天请求."""
+    messages: List[Dict[str, str]] = []
+    system: str = None
+
+
+class ChatResponse(BaseModel):
+    """聊天响应."""
+    content: str
+
+
+class TaskAnalysisRequest(BaseModel):
+    """任务分析请求."""
+    task_text: str
+
+
+@router.post("/chat", response_model=ChatResponse)
+async def chat(
+    tenant_id: str,
+    request: ChatRequest,
+    client: dict = Depends(get_current_client)
+):
+    """LLM 聊天接口."""
+    if client["tenant_id"] != tenant_id:
+        raise HTTPException(status_code=403, detail="Forbidden")
+    
+    tenant_config = _tenant_manager.get_tenant(tenant_id)
+    gateway = LLMGateway(tenant_config)
+    
+    result = await gateway.chat_with_context(
+        request.messages[-1]["content"] if request.messages else "",
+        request.messages[:-1] if request.messages else []
+    )
+    
+    return ChatResponse(content=result)
+
+
+@router.post("/analyze-task")
+async def analyze_task(
+    tenant_id: str,
+    request: TaskAnalysisRequest,
+    client: dict = Depends(get_current_client)
+):
+    """任务分析接口 (供 TaskCoordinator 使用)."""
+    if client["tenant_id"] != tenant_id:
+        raise HTTPException(status_code=403, detail="Forbidden")
+    
+    tenant_config = _tenant_manager.get_tenant(tenant_id)
+    gateway = LLMGateway(tenant_config)
+    
+    result = await gateway.analyze_task(request.task_text)
+    
+    return result
+```
+
+- [ ] **Step 4: 测试导入**
+
+Run: `python -c "from server.llm.gateway import LLMGateway; print('OK')"`
+Expected: 无错误
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add server/llm/ server/api/llm.py
+git commit -m "feat(server): add LLM Gateway with context assembly"
+```
+
+---
+
+### Task 4.2: Chat Session Manager
+
+**Files:**
+- Create: `server/chat/session.py`
+- Create: `server/chat/manager.py`
+- Create: `server/api/chat.py`
+
+- [ ] **Step 1: 创建 server/chat/session.py**
+
+```python
+"""Chat Session 模型."""
+
+from dataclasses import dataclass, field
+from typing import List, Dict
+import uuid
+import time
+
+
+@dataclass
+class ChatSession:
+    """Chat Session."""
+    session_id: str
+    tenant_id: str
+    requester_id: str
+    status: str = "active"  # active, completed
+    messages: List[Dict[str, str]] = field(default_factory=list)
+    created_at: float = field(default_factory=time.time)
+    ended_at: float = None
+    
+    def add_message(self, role: str, content: str):
+        """添加消息."""
+        self.messages.append({
+            "role": role,
+            "content": content
+        })
+        
+    def end(self):
+        """结束 session."""
+        self.status = "completed"
+        self.ended_at = time.time()
+        
+    def to_dict(self) -> dict:
+        return {
+            "session_id": self.session_id,
+            "tenant_id": self.tenant_id,
+            "requester_id": self.requester_id,
+            "status": self.status,
+            "messages": self.messages,
+            "created_at": self.created_at,
+            "ended_at": self.ended_at,
+        }
+```
+
+- [ ] **Step 2: 创建 server/chat/manager.py**
+
+```python
+"""Chat Session 管理器."""
+
+import logging
+from typing import Dict, Optional
+
+from server.chat.session import ChatSession
+from server.llm.gateway import LLMGateway
+from server.tenant.config import TenantConfig
+
+logger = logging.getLogger(__name__)
+
+
+class ChatSessionManager:
+    """Chat Session 管理器."""
+    
+    def __init__(self, tenant_config: TenantConfig):
+        self.tenant = tenant_config
+        self.sessions: Dict[str, ChatSession] = {}
+        self.llm_gateway = LLMGateway(tenant_config)
+        
+    def create_session(self, tenant_id: str, requester_id: str) -> ChatSession:
+        """创建 Session."""
+        import uuid
+        session_id = f"sess-{uuid.uuid4().hex[:12]}"
+        
+        session = ChatSession(
+            session_id=session_id,
+            tenant_id=tenant_id,
+            requester_id=requester_id,
+        )
+        
+        self.sessions[session_id] = session
+        logger.info(f"Created session: {session_id}")
+        
+        return session
+        
+    def get_session(self, session_id: str) -> Optional[ChatSession]:
+        """获取 Session."""
+        return self.sessions.get(session_id)
+        
+    async def send_message(self, session_id: str, content: str) -> str:
+        """发送消息."""
+        session = self.get_session(session_id)
+        if not session:
+            raise ValueError(f"Session {session_id} not found")
+            
+        if session.status != "active":
+            raise ValueError("Session is not active")
+            
+        # 添加用户消息
+        session.add_message("user", content)
+        
+        # 调用 LLM
+        response = await self.llm_gateway.chat_with_context(
+            content,
+            session.messages[:-1]  # 不包含刚加的这条
+        )
+        
+        # 添加助手消息
+        session.add_message("assistant", response)
+        
+        return response
+        
+    async def end_session(self, session_id: str) -> str:
+        """结束 Session 并生成 Memory."""
+        session = self.get_session(session_id)
+        if not session:
+            raise ValueError(f"Session {session_id} not found")
+            
+        session.end()
+        
+        # 调用 LLM 总结
+        summary = await self.llm_gateway.summarize_session(session.messages)
+        
+        # 存储到 Memory
+        self.tenant.memory.add(summary)
+        
+        logger.info(f"Session {session_id} ended, summary: {summary[:100]}...")
+        
+        return summary
+```
+
+- [ ] **Step 3: 创建 server/api/chat.py**
+
+```python
+"""Chat API."""
+
+import uuid
+from typing import List
+
+from fastapi import APIRouter, HTTPException, Depends
+from pydantic import BaseModel
+
+from server.api.auth import get_current_client
+from server.chat.manager import ChatSessionManager
+from server.tenant.manager import TenantManager
+from server.core.exceptions import SessionNotFoundError
+
+router = APIRouter()
+
+_tenant_manager: TenantManager = None
+_session_managers: dict = {}  # tenant_id -> ChatSessionManager
+
+
+def set_tenant_manager(manager: TenantManager):
+    """设置租户管理器."""
+    global _tenant_manager, _session_managers
+    _tenant_manager = manager
+    
+    # 为每个租户创建 session manager
+    for tenant_id, config in manager._tenants.items():
+        _session_managers[tenant_id] = ChatSessionManager(config)
+
+
+class StartSessionRequest(BaseModel):
+    """创建 Session 请求."""
+    pass
+
+
+class MessageRequest(BaseModel):
+    """消息请求."""
+    content: str
+
+
+class MessageResponse(BaseModel):
+    """消息响应."""
+    session_id: str
+    content: str
+
+
+class EndResponse(BaseModel):
+    """结束响应."""
+    session_id: str
+    summary: str
+
+
+@router.post("/start")
+async def start_session(
+    tenant_id: str,
+    client: dict = Depends(get_current_client)
+):
+    """创建 Chat Session."""
+    if client["tenant_id"] != tenant_id:
+        raise HTTPException(status_code=403, detail="Forbidden")
+    
+    # 确保 session manager 存在
+    if tenant_id not in _session_managers:
+        config = _tenant_manager.get_tenant(tenant_id)
+        _session_managers[tenant_id] = ChatSessionManager(config)
+    
+    manager = _session_managers[tenant_id]
+    session = manager.create_session(tenant_id, client["client_id"])
+    
+    return {
+        "session_id": session.session_id,
+        "status": session.status
+    }
+
+
+@router.post("/{session_id}/message", response_model=MessageResponse)
+async def send_message(
+    tenant_id: str,
+    session_id: str,
+    request: MessageRequest,
+    client: dict = Depends(get_current_client)
+):
+    """发送消息."""
+    if client["tenant_id"] != tenant_id:
+        raise HTTPException(status_code=403, detail="Forbidden")
+    
+    if tenant_id not in _session_managers:
+        raise HTTPException(status_code=404, detail="Session not found")
+    
+    manager = _session_managers[tenant_id]
+    
+    try:
+        response = await manager.send_message(session_id, request.content)
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    
+    return MessageResponse(
+        session_id=session_id,
+        content=response
+    )
+
+
+@router.post("/{session_id}/end", response_model=EndResponse)
+async def end_session(
+    tenant_id: str,
+    session_id: str,
+    client: dict = Depends(get_current_client)
+):
+    """结束 Session."""
+    if client["tenant_id"] != tenant_id:
+        raise HTTPException(status_code=403, detail="Forbidden")
+    
+    if tenant_id not in _session_managers:
+        raise HTTPException(status_code=404, detail="Session not found")
+    
+    manager = _session_managers[tenant_id]
+    
+    try:
+        summary = await manager.end_session(session_id)
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    
+    return EndResponse(
+        session_id=session_id,
+        summary=summary
+    )
+```
+
+- [ ] **Step 4: 测试导入**
+
+Run: `python -c "from server.chat.manager import ChatSessionManager; print('OK')"`
+Expected: 无错误
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add server/chat/ server/api/chat.py
+git commit -m "feat(server): add Chat Session Manager with memory summarization"
+```
+
+---
+
+## Chunk 5: Client Python
+
+### Task 5.1: Client Python 核心
+
+**Files:**
+- Create: `client/python/core/types.py`
+- Create: `client/python/core/transport.py`
+- Create: `client/python/core/connection.py`
+
+- [ ] **Step 1: 创建 client/python/core/types.py (复用 server/core/types.py 的子集)**
+
+```python
+"""Client 消息类型."""
+
+from dataclasses import dataclass, field
+from typing import Optional, List, Dict
+import time
+import uuid
+
+
+@dataclass
+class DeviceInfo:
+    """设备信息."""
+    device_id: str
+    name: str
+    role: str
+    wisdom: int
+    output: bool
+    llm_enabled: bool = False
+    skills: List[str] = field(default_factory=list)
+    
+    def to_dict(self) -> dict:
+        return {
+            "device_id": self.device_id,
+            "name": self.name,
+            "role": self.role,
+            "wisdom": self.wisdom,
+            "output": self.output,
+            "llm_enabled": self.llm_enabled,
+            "skills": self.skills,
+        }
+
+
+@dataclass
+class TaskDispatch:
+    """任务分发."""
+    msg_type: str = "task/dispatch"
+    request_id: str = ""
+    task_id: str = field(default_factory=lambda: str(uuid.uuid4()))
+    skill_name: str = ""
+    parameters: Dict[str, str] = field(default_factory=dict)
+    executor_id: str = ""
+    requires_llm: bool = False
+    collaborate_with: List[str] = field(default_factory=list)
+    timeout: int = 30
     timestamp: float = field(default_factory=time.time)
 
 
 @dataclass
 class TaskResponse:
-    msg_type: str = MsgType.TASK_RESPONSE.value
+    """任务响应."""
+    msg_type: str = "task/response"
     request_id: str = ""
+    task_id: str = ""
     success: bool = False
     result: str = ""
     executor_id: str = ""
@@ -312,1864 +2117,473 @@ class TaskResponse:
 
 @dataclass
 class TaskNotify:
-    msg_type: str = MsgType.TASK_NOTIFY.value
+    """通知."""
+    msg_type: str = "task/notify"
     request_id: str = ""
     message: str = ""
     source_id: str = ""
     timestamp: float = field(default_factory=time.time)
-
-
-@dataclass
-class ActorState:
-    device_id: str = ""
-    history: List[str] = field(default_factory=list)
-    current: Optional[str] = None
-    next_ops: List[str] = field(default_factory=list)
-    timestamp: float = field(default_factory=time.time)
-    
-    def update_on_receive(self, operation: str):
-        self.current = operation
-        
-    def update_on_complete(self, success: bool):
-        if self.current:
-            self.history.append(self.current)
-            self.current = None
 ```
 
-- [ ] **Step 4: 运行测试验证通过**
-
-```bash
-cd /Users/taoluo/projects/gcode/dooz
-pytest tests/test_types.py -v
-```
-
-Expected: PASS
-
-- [ ] **Step 5: Commit**
-
-```bash
-git add core/types.py tests/test_types.py
-git commit -m "feat: add core message types"
-```
-
----
-
-## Chunk 3: 设备发现服务
-
-**目标:** 实现基于 FastDDS 的设备发现功能
-
-### Task 4: 实现 DiscoveryService
-
-**Files:**
-- Create: `core/discovery.py`
-- Test: `tests/test_discovery.py`
-
-- [ ] **Step 1: 编写测试**
+- [ ] **Step 2: 创建 client/python/core/connection.py**
 
 ```python
-# tests/test_discovery.py
-import pytest
-from unittest.mock import Mock, MagicMock
-from core.discovery import DiscoveryService
-from core.types import DeviceInfo
+"""Client 连接."""
 
-@pytest.fixture
-def mock_participant():
-    participant = MagicMock()
-    return participant
-
-def test_discovery_service_init():
-    device_info = DeviceInfo(
-        device_id="test_001",
-        name="Test",
-        role="test",
-        wisdom=50,
-        output=True,
-        skills=["skill1"]
-    )
-    # Will fail because DiscoveryService doesn't exist yet
-    discovery = DiscoveryService(device_info, mock_participant)
-    assert discovery.device_info.device_id == "test_001"
-```
-
-- [ ] **Step 2: 运行测试验证失败**
-
-```bash
-pytest tests/test_discovery.py -v
-```
-
-Expected: FAIL (ModuleNotFoundError: core.discovery)
-
-- [ ] **Step 3: 实现 discovery.py**
-
-```python
-# core/discovery.py
-import logging
-import time
-from typing import Dict, Optional
-from core.types import DeviceInfo, DeviceAnnounce, DeviceHeartbeat, DeviceOffline
-
-logger = logging.getLogger(__name__)
-
-
-class DiscoveryService:
-    """设备发现服务 - 管理设备注册、心跳、在线状态"""
-    
-    HEARTBEAT_INTERVAL = 3  # 秒
-    HEARTBEAT_TIMEOUT = 10   # 秒
-    
-    def __init__(self, device_info: DeviceInfo, participant):
-        self.device_info = device_info
-        self.participant = participant
-        self.online_devices: Dict[str, DeviceInfo] = {}
-        self.last_heartbeat: Dict[str, float] = {}
-        self._running = False
-        
-    def start(self):
-        """启动发现服务"""
-        self._running = True
-        self._announce_presence()
-        logger.info(f"DiscoveryService started for {self.device_info.device_id}")
-        
-    def stop(self):
-        """停止发现服务"""
-        self._running = False
-        self._announce_offline()
-        logger.info(f"DiscoveryService stopped for {self.device_info.device_id}")
-        
-    def _announce_presence(self):
-        """广播设备上线"""
-        msg = DeviceAnnounce(device=self.device_info)
-        # TODO: Publish via FastDDS
-        logger.info(f"Announced presence: {self.device_info.device_id}")
-        
-    def _announce_offline(self):
-        """广播设备离线"""
-        msg = DeviceOffline(device_id=self.device_info.device_id)
-        # TODO: Publish via FastDDS
-        logger.info(f"Announced offline: {self.device_info.device_id}")
-        
-    def send_heartbeat(self):
-        """发送心跳"""
-        msg = DeviceHeartbeat(device_id=self.device_info.device_id)
-        # TODO: Publish via FastDDS
-        self.last_heartbeat[self.device_info.device_id] = time.time()
-        
-    def on_device_announce(self, announce: DeviceAnnounce):
-        """处理设备上线消息"""
-        device = announce.device
-        if device.device_id == self.device_info.device_id:
-            return  # 忽略自己的消息
-            
-        self.online_devices[device.device_id] = device
-        self.last_heartbeat[device.device_id] = time.time()
-        logger.info(f"Device online: {device.device_id} (wisdom={device.wisdom})")
-        
-    def on_device_offline(self, offline: DeviceOffline):
-        """处理设备离线消息"""
-        device_id = offline.device_id
-        if device_id in self.online_devices:
-            del self.online_devices[device_id]
-        if device_id in self.last_heartbeat:
-            del self.last_heartbeat[device_id]
-        logger.info(f"Device offline: {device_id}")
-        
-    def on_heartbeat(self, heartbeat: DeviceHeartbeat):
-        """处理心跳消息"""
-        device_id = heartbeat.device_id
-        if device_id != self.device_info.device_id:
-            self.last_heartbeat[device_id] = time.time()
-            
-    def check_timeouts(self):
-        """检查超时设备"""
-        current_time = time.time()
-        timed_out = []
-        for device_id, last_time in self.list(self.last_heartbeat):
-            if current_time - last_time > self.HEARTBEAT_TIMEOUT:
-                timed_out.append(device_id)
-                
-        for device_id in timed_out:
-            if device_id in self.online_devices:
-                del self.online_devices[device_id]
-            if device_id in self.last_heartbeat:
-                del self.last_heartbeat[device_id]
-                logger.info(f"Device timed out: {device_id}")
-                
-    def get_online_devices(self) -> Dict[str, DeviceInfo]:
-        """获取在线设备列表"""
-        return self.online_devices.copy()
-        
-    def is_device_online(self, device_id: str) -> bool:
-        """检查设备是否在线"""
-        return device_id in self.online_devices
-```
-
-- [ ] **Step 4: 运行测试验证通过**
-
-```bash
-pytest tests/test_discovery.py -v
-```
-
-Expected: PASS
-
-- [ ] **Step 5: Commit**
-
-```bash
-git add core/discovery.py tests/test_discovery.py
-git commit -m "feat: add discovery service"
-```
-
----
-
-## Chunk 4: 大脑选举服务
-
-**目标:** 实现基于 wisdom 值的脑选举逻辑
-
-### Task 5: 实现 ElectionService
-
-**Files:**
-- Create: `core/election.py`
-- Test: `tests/test_election.py`
-
-- [ ] **Step 1: 编写测试**
-
-```python
-# tests/test_election.py
-import pytest
-from core.election import ElectionService
-from core.types import DeviceInfo, BrainStatus
-
-WISDOM_THRESHOLD = 50
-
-def test_election_no_candidates():
-    """测试无可用候选者"""
-    devices = {}
-    service = ElectionService(WISDOM_THRESHOLD)
-    brain_id = service.elect_brain(devices)
-    assert brain_id is None
-
-def test_election_single_candidate():
-    """测试单一候选者"""
-    devices = {
-        "device_001": DeviceInfo("device_001", "Test", "test", 90, True, [])
-    }
-    service = ElectionService(WISDOM_THRESHOLD)
-    brain_id = service.elect_brain(devices)
-    assert brain_id == "device_001"
-
-def test_election_highest_wisdom():
-    """测试最高 wisdom 获胜"""
-    devices = {
-        "device_001": DeviceInfo("device_001", "Test1", "test", 70, True, []),
-        "device_002": DeviceInfo("device_002", "Test2", "test", 90, True, []),
-        "device_003": DeviceInfo("device_003", "Test3", "test", 50, True, []),
-    }
-    service = ElectionService(WISDOM_THRESHOLD)
-    brain_id = service.elect_brain(devices)
-    assert brain_id == "device_002"  # wisdom=90
-
-def test_election_below_threshold():
-    """测试 wisdom 低于门槛"""
-    devices = {
-        "device_001": DeviceInfo("device_001", "Test", "test", 30, True, []),
-    }
-    service = ElectionService(WISDOM_THRESHOLD)
-    brain_id = service.elect_brain(devices)
-    assert brain_id is None
-```
-
-- [ ] **Step 2: 运行测试验证失败**
-
-```bash
-pytest tests/test_election.py -v
-```
-
-Expected: FAIL (ModuleNotFoundError: core.election)
-
-- [ ] **Step 3: 实现 election.py**
-
-```python
-# core/election.py
-import logging
-from typing import Dict, Optional
-from core.types import DeviceInfo, BrainStatus
-
-logger = logging.getLogger(__name__)
-
-
-class ElectionService:
-    """大脑选举服务 - 基于 wisdom 值选举脑节点"""
-    
-    def __init__(self, wisdom_threshold: int = 50):
-        self.wisdom_threshold = wisdom_threshold
-        self.current_brain_id: Optional[str] = None
-        
-    def elect_brain(self, devices: Dict[str, DeviceInfo]) -> Optional[str]:
-        """
-        选举大脑
-        规则：wisdom >= threshold 的设备中，wisdom 最高的成为大脑
-        """
-        candidates = {
-            device_id: device 
-            for device_id, device in devices.items()
-            if device.wisdom >= self.wisdom_threshold
-        }
-        
-        if not candidates:
-            logger.info("No brain candidate available (all wisdom < threshold)")
-            self.current_brain_id = None
-            return None
-            
-        # 选择 wisdom 最高的设备
-        brain_id = max(candidates.keys(), key=lambda k: candidates[k].wisdom)
-        
-        if brain_id != self.current_brain_id:
-            logger.info(f"Brain elected: {brain_id} (wisdom={candidates[brain_id].wisdom})")
-            self.current_brain_id = brain_id
-            
-        return brain_id
-    
-    def get_brain_status(self) -> BrainStatus:
-        """获取当前大脑状态"""
-        if self.current_brain_id is None:
-            return BrainStatus(
-                brain_id=None,
-                wisdom_threshold=self.wisdom_threshold,
-                reason="no_candidate"
-            )
-        return BrainStatus(
-            brain_id=self.current_brain_id,
-            wisdom_threshold=self.wisdom_threshold,
-            reason="highest_wisdom"
-        )
-    
-    def is_brain(self, device_id: str) -> bool:
-        """检查是否为大脑"""
-        return device_id == self.current_brain_id
-    
-    def reset(self):
-        """重置选举状态"""
-        self.current_brain_id = None
-```
-
-- [ ] **Step 4: 运行测试验证通过**
-
-```bash
-pytest tests/test_election.py -v
-```
-
-Expected: PASS
-
-- [ ] **Step 5: Commit**
-
-```bash
-git add core/election.py tests/test_election.py
-git commit -m "feat: add election service"
-```
-
----
-
-## Chunk 5: Actor State 管理
-
-**目标:** 实现 Actor 状态机
-
-### Task 6: 实现 ActorStateManager
-
-**Files:**
-- Create: `core/actor_state.py`
-- Test: `tests/test_actor_state.py`
-
-- [ ] **Step 1: 编写测试**
-
-```python
-# tests/test_actor_state.py
-import pytest
-from core.actor_state import ActorStateManager
-from core.types import ActorState
-
-def test_actor_state_init():
-    manager = ActorStateManager("device_001")
-    state = manager.get_state()
-    assert state.device_id == "device_001"
-    assert state.current is None
-    assert state.history == []
-
-def test_update_on_receive():
-    manager = ActorStateManager("device_001")
-    manager.update_on_receive("play_video")
-    state = manager.get_state()
-    assert state.current == "play_video"
-
-def test_update_on_complete():
-    manager = ActorStateManager("device_001")
-    manager.update_on_receive("play_video")
-    manager.update_on_complete(True)
-    state = manager.get_state()
-    assert state.current is None
-    assert "play_video" in state.history
-
-def test_multiple_operations():
-    manager = ActorStateManager("device_001")
-    manager.update_on_receive("op1")
-    manager.update_on_complete(True)
-    manager.update_on_receive("op2")
-    manager.update_on_complete(True)
-    state = manager.get_state()
-    assert state.history == ["op1", "op2"]
-    assert state.current is None
-```
-
-- [ ] **Step 2: 运行测试验证失败**
-
-```bash
-pytest tests/test_actor_state.py -v
-```
-
-Expected: FAIL (ModuleNotFoundError)
-
-- [ ] **Step 3: 实现 actor_state.py**
-
-```python
-# core/actor_state.py
-import logging
-from core.types import ActorState
-
-logger = logging.getLogger(__name__)
-
-
-class ActorStateManager:
-    """Actor 状态管理器 - 管理设备的操作历史、当前操作、下一步操作"""
-    
-    def __init__(self, device_id: str):
-        self.device_id = device_id
-        self.state = ActorState(device_id=device_id)
-        
-    def update_on_receive(self, operation: str):
-        """接收任务时更新状态"""
-        self.state.update_on_receive(operation)
-        logger.info(f"{self.device_id}: received operation '{operation}'")
-        
-    def update_on_complete(self, success: bool):
-        """任务完成时更新状态"""
-        self.state.update_on_complete(success)
-        logger.info(f"{self.device_id}: completed operation, history={self.state.history}")
-        
-    def set_next_ops(self, operations: list):
-        """设置下一步可执行的操作"""
-        self.state.next_ops = operations
-        
-    def get_state(self) -> ActorState:
-        """获取当前状态"""
-        return self.state
-        
-    def get_history(self) -> list:
-        """获取操作历史"""
-        return self.state.history.copy()
-        
-    def get_current(self) -> str:
-        """获取当前操作"""
-        return self.state.current
-```
-
-- [ ] **Step 4: 运行测试验证通过**
-
-```bash
-pytest tests/test_actor_state.py -v
-```
-
-Expected: PASS
-
-- [ ] **Step 5: Commit**
-
-```bash
-git add core/actor_state.py tests/test_actor_state.py
-git commit -m "feat: add actor state manager"
-```
-
----
-
-## Chunk 6: 消息传输服务
-
-**目标:** 实现基于 FastDDS 的消息发布/订阅
-
-### Task 7: 实现 TransportService
-
-**Files:**
-- Create: `core/transport.py`
-- Test: `tests/test_transport.py`
-
-- [ ] **Step 1: 编写测试 (简化版)**
-
-```python
-# tests/test_transport.py
-import pytest
-from unittest.mock import MagicMock
-from core.transport import TransportService
-
-def test_transport_init():
-    """测试传输服务初始化"""
-    participant = MagicMock()
-    transport = TransportService(participant, "device_001")
-    assert transport.device_id == "device_001"
-```
-
-- [ ] **Step 2: 运行测试验证失败**
-
-```bash
-pytest tests/test_transport.py -v
-```
-
-Expected: FAIL
-
-- [ ] **Step 3: 实现 transport.py (MVP 简化版)**
-
-```python
-# core/transport.py
-"""
-消息传输服务 - 基于 FastDDS 的 Pub/Sub
-MVP 阶段使用内存队列模拟，FastDDS 集成在运行时完成
-"""
-import logging
+import asyncio
 import json
-from typing import Dict, Callable, Any
-from dataclasses import asdict
+import logging
+from typing import Optional, Callable, Dict
+
+import websockets
+
+from client.python.core.types import DeviceInfo
 
 logger = logging.getLogger(__name__)
 
 
-class TransportService:
-    """消息传输服务 - 负责消息的发布和订阅"""
+class ClientConnection:
+    """Client 到 Server 的连接."""
     
-    def __init__(self, participant, device_id: str):
-        self.participant = participant
-        self.device_id = device_id
-        self.publishers: Dict[str, Any] = {}
-        self.subscribers: Dict[str, list] = {}
-        self._callbacks: Dict[str, list] = {}
+    def __init__(
+        self,
+        server_url: str,
+        tenant_id: str,
+        client_id: str,
+        client_secret: str,
+    ):
+        self.server_url = server_url
+        self.tenant_id = tenant_id
+        self.client_id = client_id
+        self.client_secret = client_secret
         
-    def create_publisher(self, topic_name: str):
-        """创建发布者"""
-        # TODO: 集成 FastDDS publisher
-        self.publishers[topic_name] = None
-        logger.info(f"Publisher created for topic: {topic_name}")
+        self._websocket = None
+        self._token = None
+        self._running = False
+        self._callbacks: Dict[str, Callable] = {}
         
-    def create_subscriber(self, topic_name: str, callback: Callable):
-        """创建订阅者"""
-        if topic_name not in self.subscribers:
-            self.subscribers[topic_name] = []
-            # TODO: 集成 FastDDS subscriber
-        self.subscribers[topic_name].append(callback)
+    async def connect(self) -> bool:
+        """连接 Server."""
+        # 1. 获取 token
+        async with httpx.AsyncClient() as client:
+            response = await client.post(
+                f"{self.server_url}/auth/token",
+                data={
+                    "username": self.client_id,
+                    "password": self.client_secret,
+                }
+            )
+            if response.status_code != 200:
+                logger.error(f"Auth failed: {response.status_code}")
+                return False
+                
+            data = response.json()
+            self._token = data["access_token"]
+            
+        # 2. 连接 WebSocket
+        ws_url = f"{self.server_url.replace('http', 'ws')}/ws/tenant/{self.tenant_id}?token={self._token}"
+        self._websocket = await websockets.connect(ws_url)
         
-        if topic_name not in self._callbacks:
-            self._callbacks[topic_name] = []
-        self._callbacks[topic_name].append(callback)
-        logger.info(f"Subscriber created for topic: {topic_name}")
+        self._running = True
+        logger.info(f"Connected to {self.server_url}")
         
-    def publish(self, topic_name: str, message: Any):
-        """发布消息"""
-        # TODO: 通过 FastDDS 发布
-        logger.debug(f"Publishing to {topic_name}: {message}")
+        # 3. 发送 device announce
+        await self._send_announce()
         
-    def on_message_received(self, topic_name: str, message: Any):
-        """收到消息时触发回调"""
-        if topic_name in self._callbacks:
-            for callback in self._callbacks[topic_name]:
+        return True
+        
+    async def disconnect(self):
+        """断开连接."""
+        self._running = False
+        if self._websocket:
+            await self._websocket.close()
+            
+    async def _send_announce(self):
+        """发送设备上线消息."""
+        # TODO: 从配置获取设备信息
+        message = {
+            "msg_type": "device/announce",
+            "device": {
+                "device_id": self.client_id,
+                "name": "Device",
+                "role": "agent",
+                "wisdom": 50,
+                "output": True,
+                "llm_enabled": True,
+                "skills": []
+            }
+        }
+        await self.send(message)
+        
+    async def send(self, message: dict):
+        """发送消息."""
+        if self._websocket:
+            await self._websocket.send(json.dumps(message))
+            
+    def on(self, msg_type: str, callback: Callable):
+        """注册消息回调."""
+        self._callbacks[msg_type] = callback
+        
+    async def loop(self):
+        """消息循环."""
+        try:
+            async for message in self._websocket:
                 try:
-                    callback(message)
-                except Exception as e:
-                    logger.error(f"Error in callback for {topic_name}: {e}")
+                    data = json.loads(message)
+                    msg_type = data.get("msg_type", "")
                     
-    def get_subscribed_topics(self) -> list:
-        """获取已订阅的话题列表"""
-        return list(self.subscribers.keys())
+                    if msg_type in self._callbacks:
+                        self._callbacks[msg_type](data)
+                        
+                except json.JSONDecodeError:
+                    logger.error(f"Invalid JSON: {message}")
+                    
+        except websockets.exceptions.ConnectionClosed:
+            logger.info("Connection closed")
+        finally:
+            self._running = False
 ```
 
-- [ ] **Step 4: 运行测试验证通过**
+- [ ] **Step 3: 创建 client/python/core/transport.py**
 
-```bash
-pytest tests/test_transport.py -v
+```python
+"""Client 消息传输."""
+
+import asyncio
+import logging
+from typing import Callable, Optional
+
+from client.python.core.connection import ClientConnection
+
+logger = logging.getLogger(__name__)
+
+
+class ClientTransport:
+    """Client 消息传输."""
+    
+    def __init__(self, connection: ClientConnection):
+        self.connection = connection
+        self._handlers: dict = {}
+        
+    def subscribe(self, msg_type: str, handler: Callable):
+        """订阅消息."""
+        self._handlers[msg_type] = handler
+        self.connection.on(msg_type, handler)
+        
+    async def publish(self, msg_type: str, message: dict):
+        """发布消息."""
+        await self.connection.send(message)
+        
+    async def request_task(self, text: str, requester_id: str):
+        """发送任务请求."""
+        import uuid, time
+        message = {
+            "msg_type": "task/request",
+            "request_id": str(uuid.uuid4()),
+            "text": text,
+            "requester_id": requester_id,
+            "timestamp": time.time()
+        }
+        await self.publish("task/request", message)
 ```
 
-Expected: PASS
-
-- [ ] **Step 5: Commit**
+- [ ] **Step 4: Commit**
 
 ```bash
-git add core/transport.py tests/test_transport.py
-git commit -m "feat: add transport service"
+git add client/python/core/
+git commit -m "feat(client): add Python client core"
 ```
 
 ---
 
-## Chunk 7: Client 基类
-
-**目标:** 实现 Client 基类，整合所有服务
-
-### Task 8: 实现 Client 基类
+### Task 5.2: Client Agent 主类
 
 **Files:**
-- Create: `client/base.py`
-- Test: `tests/test_client.py`
+- Create: `client/python/agent.py`
 
-- [ ] **Step 1: 编写测试**
-
-```python
-# tests/test_client.py
-import pytest
-from unittest.mock import MagicMock
-from client.base import Client
-from core.types import DeviceInfo
-
-@pytest.fixture
-def client_config():
-    return DeviceInfo(
-        device_id="test_001",
-        name="Test Device",
-        role="test",
-        wisdom=50,
-        output=True,
-        skills=["skill1"]
-    )
-
-def test_client_init(client_config):
-    client = Client(client_config)
-    assert client.device_id == "test_001"
-    assert client.wisdom == 50
-    assert client.output is True
-```
-
-- [ ] **Step 2: 运行测试验证失败**
-
-```bash
-pytest tests/test_client.py -v
-```
-
-Expected: FAIL
-
-- [ ] **Step 3: 实现 client/base.py**
+- [ ] **Step 1: 创建 client/python/agent.py**
 
 ```python
-# client/base.py
+"""dooz Agent 主类."""
+
+import asyncio
 import logging
-import yaml
 from typing import Optional
-from pathlib import Path
 
-from core.types import DeviceInfo, TaskRequest, TaskDispatch, TaskResponse
-from core.discovery import DiscoveryService
-from core.election import ElectionService
-from core.transport import TransportService
-from core.actor_state import ActorStateManager
+from client.python.core.connection import ClientConnection
+from client.python.core.transport import ClientTransport
+from client.python.core.types import DeviceInfo
+from client.python.llm.client import LLmClient
 
 logger = logging.getLogger(__name__)
 
 
-class Client:
-    """设备客户端基类"""
+class Agent:
+    """dooz Agent (Client)."""
     
-    def __init__(self, config: DeviceInfo):
+    def __init__(
+        self,
+        config: dict,
+    ):
         self.config = config
-        self.device_id = config.device_id
-        self.wisdom = config.wisdom
-        self.output = config.output
-        self.skills = config.skills
         
-        # 服务
-        self.participant = None  # FastDDS participant
-        self.discovery = DiscoveryService(config, self.participant)
-        self.election = ElectionService(wisdom_threshold=50)
-        self.transport = TransportService(self.participant, self.device_id)
-        self.actor_state = ActorStateManager(self.device_id)
+        # 设备信息
+        device = config.get("device", {})
+        self.device_id = device.get("id")
+        self.device_name = device.get("name")
+        self.wisdom = device.get("wisdom", 50)
+        self.output = device.get("output", False)
+        self.llm_enabled = device.get("llm_enabled", False)
+        self.skills = {s.get("name"): s for s in device.get("skills", [])}
         
-        self._is_running = False
+        # Server 配置
+        server = config.get("server", {})
+        self.server_url = server.get("url", "http://localhost:8000")
+        self.tenant_id = server.get("tenant_id")
+        auth = server.get("auth", {})
+        self.client_id = auth.get("client_id")
+        self.client_secret = auth.get("client_secret")
         
-    @classmethod
-    def from_yaml(cls, config_path: str) -> 'Client':
-        """从 YAML 配置文件创建 Client"""
-        with open(config_path, 'r') as f:
-            config_data = yaml.safe_load(f)
-            
-        device_data = config_data['device']
-        config = DeviceInfo(
-            device_id=device_data['id'],
-            name=device_data['name'],
-            role=device_data['role'],
-            wisdom=device_data['wisdom'],
-            output=device_data['output'],
-            skills=[s['name'] for s in device_data.get('skills', [])]
+        # 连接
+        self._connection: Optional[ClientConnection] = None
+        self._transport: Optional[ClientTransport] = None
+        self._llm_client: Optional[LLmClient] = None
+        self._running = False
+        
+    async def start(self):
+        """启动 Agent."""
+        logger.info(f"Starting agent: {self.device_id}")
+        
+        # 创建连接
+        self._connection = ClientConnection(
+            server_url=self.server_url,
+            tenant_id=self.tenant_id,
+            client_id=self.client_id,
+            client_secret=self.client_secret,
         )
-        return cls(config)
         
-    def start(self):
-        """启动客户端"""
-        logger.info(f"Starting client: {self.device_id}")
-        self._is_running = True
-        
-        # 初始化 FastDDS
-        self._init_dds()
-        
-        # 启动服务
-        self.discovery.start()
-        self._setup_subscriptions()
-        
-        logger.info(f"Client {self.device_id} started")
-        
-    def stop(self):
-        """停止客户端"""
-        logger.info(f"Stopping client: {self.device_id}")
-        self._is_running = False
-        self.discovery.stop()
-        
-    def _init_dds(self):
-        """初始化 FastDDS"""
-        # TODO: 初始化 FastDDS participant
-        logger.info("FastDDS participant initialized (placeholder)")
-        
-    def _setup_subscriptions(self):
-        """设置消息订阅"""
-        topics = [
-            "dooz/device/announce",
-            "dooz/device/heartbeat",
-            "dooz/device/offline",
-            "dooz/brain/status",
-            "dooz/task/dispatch",
-            "dooz/task/notify",
-        ]
-        for topic in topics:
-            self.transport.create_subscriber(topic, self._handle_message)
+        # 连接 Server
+        if not await self._connection.connect():
+            raise RuntimeError("Failed to connect to server")
             
-    def _handle_message(self, message: dict):
-        """处理收到的消息"""
-        msg_type = message.get('msg_type', '')
+        # 创建传输层
+        self._transport = ClientTransport(self._connection)
         
-        if msg_type == 'device/announce':
-            self.discovery.on_device_announce(message)
-            self._update_brain_election()
+        # 注册消息处理
+        self._register_handlers()
+        
+        # 创建 LLM 客户端
+        if self.llm_enabled:
+            self._llm_client = LLmClient(
+                server_url=self.server_url,
+                tenant_id=self.tenant_id,
+            )
             
-        elif msg_type == 'device/offline':
-            self.discovery.on_device_offline(message)
-            self._update_brain_election()
-            
-        elif msg_type == 'brain/status':
-            self._on_brain_status(message)
-            
-        elif msg_type == 'task/dispatch':
-            self._on_task_dispatch(message)
-            
-        elif msg_type == 'task/notify':
-            self._on_task_notify(message)
-            
-    def _update_brain_election(self):
-        """更新大脑选举"""
-        online_devices = self.discovery.get_online_devices()
-        # 加入自己
-        online_devices[self.device_id] = self.config
+        # 启动消息循环
+        self._running = True
+        asyncio.create_task(self._connection.loop())
         
-        new_brain_id = self.election.elect_brain(online_devices)
-        brain_status = self.election.get_brain_status()
-        self._broadcast_brain_status(brain_status)
+        logger.info(f"Agent {self.device_id} started")
         
-    def _broadcast_brain_status(self, status):
-        """广播大脑状态"""
-        import time
-        msg = {
-            'msg_type': 'brain/status',
-            'brain_id': status.brain_id,
-            'wisdom_threshold': status.wisdom_threshold,
-            'reason': status.reason,
-            'timestamp': time.time()
-        }
-        self.transport.publish('dooz/brain/status', msg)
+    async def stop(self):
+        """停止 Agent."""
+        self._running = False
+        if self._connection:
+            await self._connection.disconnect()
+        logger.info(f"Agent {self.device_id} stopped")
         
-    def send_task_request(self, text: str):
-        """发送任务请求"""
-        import uuid, time
-        request = {
-            'msg_type': 'task/request',
-            'request_id': str(uuid.uuid4()),
-            'text': text,
-            'requester_id': self.device_id,
-            'timestamp': time.time()
-        }
-        self.transport.publish('dooz/task/request', request)
-        self.actor_state.update_on_receive(f"request:{text}")
+    def _register_handlers(self):
+        """注册消息处理."""
+        self._transport.subscribe("task/dispatch", self._on_task_dispatch)
+        self._transport.subscribe("task/collaborate", self._on_task_collaborate)
         
-    def _on_brain_status(self, message: dict):
-        """处理大脑状态更新"""
-        logger.info(f"Brain status: {message.get('brain_id')} ({message.get('reason')})")
+    async def _on_task_dispatch(self, message: dict):
+        """处理任务分发."""
+        executor_id = message.get("executor_id", "")
         
-    def _on_task_dispatch(self, message: dict):
-        """处理任务分发"""
-        if message.get('executor_id') != self.device_id:
+        # 检查是否是发给我的
+        if executor_id and executor_id != self.device_id:
             return
             
-        skill_name = message.get('skill_name')
-        params = message.get('parameters', {})
+        skill_name = message.get("skill_name")
+        params = message.get("parameters", {})
+        request_id = message.get("request_id")
+        task_id = message.get("task_id")
+        requires_llm = message.get("requires_llm", False)
         
-        logger.info(f"Received task: {skill_name} with params {params}")
-        
-        # 更新 actor state
-        self.actor_state.update_on_receive(skill_name)
+        logger.info(f"Received task: {skill_name}")
         
         # 执行 skill
-        result = self._execute_skill(skill_name, params)
-        
+        if requires_llm and self.llm_enabled:
+            # 需要 LLM 推理
+            result = await self._execute_with_llm(skill_name, params, request_id)
+        else:
+            # 直接执行
+            result = await self._execute_skill(skill_name, params)
+            
         # 发送响应
         response = {
-            'msg_type': 'task/response',
-            'request_id': message.get('request_id'),
-            'success': result['success'],
-            'result': result.get('message', ''),
-            'executor_id': self.device_id,
-            'timestamp': time.time()
+            "msg_type": "task/response",
+            "request_id": request_id,
+            "task_id": task_id,
+            "success": result.get("success", False),
+            "result": result.get("message", ""),
+            "executor_id": self.device_id,
         }
-        self.transport.publish('dooz/task/response', response)
+        await self._transport.publish("task/response", response)
         
-        # 更新 actor state
-        self.actor_state.update_on_complete(result['success'])
+    async def _on_task_collaborate(self, message: dict):
+        """处理协作请求."""
+        # 类似 task dispatch
+        await self._on_task_dispatch(message)
         
-    def _on_task_notify(self, message: dict):
-        """处理任务通知"""
-        if not self.output:
-            return
+    async def _execute_skill(self, skill_name: str, params: dict) -> dict:
+        """执行 skill."""
+        # 动态导入 skill
+        try:
+            from skills import get_skill
+            skill = get_skill(skill_name)
+            if skill:
+                return skill.execute(**params)
+        except Exception as e:
+            logger.error(f"Skill execution error: {e}")
             
-        logger.info(f"NOTIFICATION: {message.get('message')}")
-        self.actor_state.update_on_receive("notify")
-        self.actor_state.update_on_complete(True)
+        return {"success": False, "message": f"Skill {skill_name} not found"}
         
-    def _execute_skill(self, skill_name: str, params: dict) -> dict:
-        """执行 skill (由子类重写)"""
-        logger.info(f"Executing skill: {skill_name}")
-        return {'success': True, 'message': f'Skill {skill_name} executed'}
+    async def _execute_with_llm(self, skill_name: str, params: dict, request_id: str) -> dict:
+        """使用 LLM 执行复杂任务."""
+        if not self._llm_client:
+            return {"success": False, "message": "LLM not enabled"}
+            
+        # 调用 Server 的 LLM 分析任务
+        # 这里简化处理
+        return await self._llm_client.analyze_and_execute(
+            f"执行任务: {skill_name}, 参数: {params}"
+        )
         
-    def get_status(self) -> dict:
-        """获取客户端状态"""
-        return {
-            'device_id': self.device_id,
-            'wisdom': self.wisdom,
-            'output': self.output,
-            'skills': self.skills,
-            'is_brain': self.election.is_brain(self.device_id),
-            'actor_state': {
-                'history': self.actor_state.get_history(),
-                'current': self.actor_state.get_current()
-            }
-        }
+    async def send_request(self, text: str):
+        """发送用户请求."""
+        await self._transport.request_task(text, self.device_id)
 ```
 
-- [ ] **Step 4: 运行测试验证通过**
+- [ ] **Step 2: 创建 client/python/llm/client.py**
 
-```bash
-pytest tests/test_client.py -v
+```python
+"""Client LLM 客户端."""
+
+import httpx
+
+
+class LLmClient:
+    """Client LLM 客户端 (调用 Server 代理)."""
+    
+    def __init__(self, server_url: str, tenant_id: str):
+        self.server_url = server_url
+        self.tenant_id = tenant_id
+        self._token = None
+        
+    async def _ensure_token(self):
+        """确保 token (简化)."""
+        # TODO: 实现 token 管理
+        pass
+        
+    async def chat(self, messages: list) -> str:
+        """聊天."""
+        await self._ensure_token()
+        
+        async with httpx.AsyncClient() as client:
+            response = await client.post(
+                f"{self.server_url}/tenant/{self.tenant_id}/llm/chat",
+                json={"messages": messages},
+            )
+            response.raise_for_status()
+            return response.json()["content"]
+            
+    async def analyze_and_execute(self, task: str) -> dict:
+        """分析并执行任务."""
+        # 这里简化处理
+        return {"success": True, "message": f"Task completed: {task}"}
 ```
 
-Expected: PASS
+- [ ] **Step 3: 创建 client/python/__init__.py**
 
-- [ ] **Step 5: Commit**
+```python
+"""dooz Python Client."""
+
+__version__ = "0.1.0"
+
+from .agent import Agent
+
+__all__ = ["Agent"]
+```
+
+- [ ] **Step 4: Commit**
 
 ```bash
-git add client/base.py tests/test_client.py
-git commit -m "feat: add client base class"
+git add client/python/
+git commit -m "feat(client): add Python Agent implementation"
 ```
 
 ---
 
-## Chunk 8: Skill 定义
+## Chunk 6: Skills (复用现有)
 
-**目标:** 定义每个设备的 skill
-
-### Task 9: 实现 Skills
+### Task 6.1: 迁移 Skills
 
 **Files:**
-- Create: `skills/__init__.py`
-- Create: `skills/screen_display.py`
-- Create: `skills/send_notification.py`
-- Create: `skills/play_audio.py`
-- Create: `skills/display_video.py`
-- Create: `skills/toggle_light.py`
-- Create: `skills/set_brightness.py`
+- Copy: `skills/*.py` → `client/python/skills/`
 
-- [ ] **Step 1: 创建 skills/__init__.py**
+- [ ] **Step 1: 复制现有 skills 到 client/python/skills/**
+
+```bash
+cp -r skills/* client/python/skills/
+```
+
+- [ ] **Step 2: 更新 skills/__init__.py 导出**
 
 ```python
-# skills/__init__.py
-"""Skill 定义模块"""
+"""Skills package."""
 
-from .screen_display import ScreenDisplaySkill
-from .send_notification import SendNotificationSkill
-from .play_audio import PlayAudioSkill
-from .display_video import DisplayVideoSkill
-from .toggle_light import ToggleLightSkill
-from .set_brightness import SetBrightnessSkill
+from skills.screen_display import ScreenDisplaySkill
+from skills.send_notification import SendNotificationSkill
+from skills.play_audio import PlayAudioSkill
+from skills.display_video import DisplayVideoSkill
+from skills.toggle_light import ToggleLightSkill
+from skills.set_brightness import SetBrightnessSkill
+
 
 SKILL_REGISTRY = {
-    'screen_display': ScreenDisplaySkill(),
-    'send_notification': SendNotificationSkill(),
-    'play_audio': PlayAudioSkill(),
-    'display_video': DisplayVideoSkill(),
-    'toggle_light': ToggleLightSkill(),
-    'set_brightness': SetBrightnessSkill(),
+    "screen_display": ScreenDisplaySkill(),
+    "send_notification": SendNotificationSkill(),
+    "play_audio": PlayAudioSkill(),
+    "display_video": DisplayVideoSkill(),
+    "toggle_light": ToggleLightSkill(),
+    "set_brightness": SetBrightnessSkill(),
 }
 
-def get_skill(skill_name: str):
-    """获取 skill 实例"""
-    return SKILL_REGISTRY.get(skill_name)
-```
 
-- [ ] **Step 2: 创建各个 skill 文件**
-
-```python
-# skills/screen_display.py
-import logging
-
-logger = logging.getLogger(__name__)
-
-class ScreenDisplaySkill:
-    name = "screen_display"
-    
-    def execute(self, **params) -> dict:
-        message = params.get('message', '')
-        logger.info(f"[ScreenDisplay] Displaying: {message}")
-        return {'success': True, 'message': f'Screen: {message}'}
-```
-
-```python
-# skills/send_notification.py
-import logging
-
-logger = logging.getLogger(__name__)
-
-class SendNotificationSkill:
-    name = "send_notification"
-    
-    def execute(self, **params) -> dict:
-        message = params.get('message', '')
-        logger.info(f"[Notification] Sending: {message}")
-        return {'success': True, 'message': f'Notified: {message}'}
-```
-
-```python
-# skills/play_audio.py
-import logging
-
-logger = logging.getLogger(__name__)
-
-class PlayAudioSkill:
-    name = "play_audio"
-    
-    def execute(self, **params) -> dict:
-        message = params.get('message', '')
-        audio_type = params.get('type', 'speech')
-        
-        if audio_type == 'speech':
-            logger.info(f"[PlayAudio] Speaking: {message}")
-        else:
-            logger.info(f"[PlayAudio] Playing: {message}")
-            
-        return {'success': True, 'message': f'Audio: {message}'}
-```
-
-```python
-# skills/display_video.py
-import logging
-
-logger = logging.getLogger(__name__)
-
-class DisplayVideoSkill:
-    name = "display_video"
-    
-    def execute(self, **params) -> dict:
-        url = params.get('url', '')
-        title = params.get('title', 'Video')
-        logger.info(f"[DisplayVideo] Playing: {title} from {url}")
-        return {'success': True, 'message': f'Playing: {title}'}
-```
-
-```python
-# skills/toggle_light.py
-import logging
-
-logger = logging.getLogger(__name__)
-
-class ToggleLightSkill:
-    name = "toggle_light"
-    
-    def execute(self, **params) -> dict:
-        state = params.get('state', 'toggle')
-        logger.info(f"[ToggleLight] Light turned {state}")
-        return {'success': True, 'message': f'Light: {state}'}
-```
-
-```python
-# skills/set_brightness.py
-import logging
-
-logger = logging.getLogger(__name__)
-
-class SetBrightnessSkill:
-    name = "set_brightness"
-    
-    def execute(self, **params) -> dict:
-        level = int(params.get('level', 100))
-        logger.info(f"[SetBrightness] Brightness set to {level}%")
-        return {'success': True, 'message': f'Brightness: {level}%'}
+def get_skill(name: str):
+    """获取 skill."""
+    return SKILL_REGISTRY.get(name)
 ```
 
 - [ ] **Step 3: Commit**
 
 ```bash
-git add skills/
-git commit -m "feat: add skill implementations"
+git add client/python/skills/
+git commit -m "feat(client): migrate skills to client/python/skills"
 ```
 
 ---
 
-## Chunk 9: 配置文件
-
-**目标:** 创建 5 个设备的配置文件
-
-### Task 10: 创建配置文件
-
-**Files:**
-- Create: `config/computer.yaml`
-- Create: `config/phone.yaml`
-- Create: `config/speaker.yaml`
-- Create: `config/tv.yaml`
-- Create: `config/light.yaml`
-
-- [ ] **Step 1: 创建 computer.yaml**
-
-```yaml
-# config/computer.yaml
-device:
-  id: "computer_001"
-  name: "Computer"
-  role: "computer"
-  wisdom: 90
-  output: true
-  skills:
-    - name: "screen_display"
-    - name: "execute_command"
-```
-
-- [ ] **Step 2: 创建 phone.yaml**
-
-```yaml
-# config/phone.yaml
-device:
-  id: "phone_001"
-  name: "Phone"
-  role: "phone"
-  wisdom: 70
-  output: true
-  skills:
-    - name: "send_notification"
-    - name: "vibrate"
-```
-
-- [ ] **Step 3: 创建 speaker.yaml**
-
-```yaml
-# config/speaker.yaml
-device:
-  id: "speaker_001"
-  name: "Speaker"
-  role: "speaker"
-  wisdom: 50
-  output: true
-  skills:
-    - name: "play_audio"
-    - name: "set_volume"
-```
-
-- [ ] **Step 4: 创建 tv.yaml**
-
-```yaml
-# config/tv.yaml
-device:
-  id: "tv_001"
-  name: "TV"
-  role: "tv"
-  wisdom: 60
-  output: true
-  skills:
-    - name: "display_video"
-    - name: "display_image"
-```
-
-- [ ] **Step 5: 创建 light.yaml**
-
-```yaml
-# config/light.yaml
-device:
-  id: "light_001"
-  name: "Light"
-  role: "light"
-  wisdom: 30
-  output: false
-  skills:
-    - name: "toggle_light"
-    - name: "set_brightness"
-```
-
-- [ ] **Step 6: Commit**
-
-```bash
-git add config/
-git commit -m "feat: add device configuration files"
-```
-
----
-
-## Chunk 10: Brain 扩展
-
-**目标:** 实现 Brain 客户端，包含 LLM 和工具注册
-
-### Task 11: 实现 Brain 功能
-
-**Files:**
-- Create: `brain/llm_client.py`
-- Create: `brain/tool_registry.py`
-- Create: `client/brain.py`
-- Test: `tests/test_brain.py`
-
-- [ ] **Step 1: 编写测试**
-
-```python
-# tests/test_brain.py
-import pytest
-from unittest.mock import MagicMock, patch
-from brain.tool_registry import ToolRegistry
-from brain.tools.search_movie import SearchMovieTool
-
-def test_tool_registry_register():
-    registry = ToolRegistry()
-    tool = SearchMovieTool()
-    registry.register("search_movie", tool)
-    assert "search_movie" in registry.list_tools()
-
-def test_tool_registry_execute():
-    registry = ToolRegistry()
-    tool = SearchMovieTool()
-    registry.register("search_movie", tool)
-    result = registry.execute("search_movie", actor="Jackie Chan")
-    assert result is not None
-```
-
-- [ ] **Step 2: 运行测试验证失败**
-
-```bash
-pytest tests/test_brain.py -v
-```
-
-Expected: FAIL
-
-- [ ] **Step 3: 实现 tool_registry.py**
-
-```python
-# brain/tool_registry.py
-import logging
-from typing import Dict, Any, Callable
-
-logger = logging.getLogger(__name__)
-
-
-class ToolRegistry:
-    """工具注册表 - 管理大脑可用的工具"""
-    
-    def __init__(self):
-        self._tools: Dict[str, Callable] = {}
-        
-    def register(self, name: str, tool: Callable):
-        """注册工具"""
-        self._tools[name] = tool
-        logger.info(f"Tool registered: {name}")
-        
-    def execute(self, tool_name: str, **kwargs) -> Any:
-        """执行工具"""
-        if tool_name not in self._tools:
-            logger.error(f"Tool not found: {tool_name}")
-            return {'success': False, 'error': f'Tool {tool_name} not found'}
-            
-        try:
-            result = self._tools[tool_name](**kwargs)
-            logger.info(f"Tool executed: {tool_name} -> {result}")
-            return result
-        except Exception as e:
-            logger.error(f"Tool execution error: {e}")
-            return {'success': False, 'error': str(e)}
-            
-    def list_tools(self) -> list:
-        """列出所有工具"""
-        return list(self._tools.keys())
-```
-
-- [ ] **Step 4: 实现内置工具**
-
-```python
-# brain/tools/__init__.py
-from .search_movie import search_movie_tool
-from .play_video import play_video_tool
-from .set_light import set_light_tool
-from .speak import speak_tool
-```
-
-```python
-# brain/tools/search_movie.py
-import logging
-
-logger = logging.getLogger(__name__)
-
-def search_movie_tool(actor: str = None, genre: str = None) -> dict:
-    """搜索电影工具 (MVP: 模拟返回)"""
-    logger.info(f"[Tool] Searching movie: actor={actor}, genre={genre}")
-    
-    # MVP: 模拟返回结果
-    if actor and "成龙" in actor:
-        result = {
-            'success': True,
-            'title': '功夫瑜伽',
-            'url': 'https://example.com/movie/kung_fu_yoga.mp4',
-            'actor': '成龙'
-        }
-    elif actor:
-        result = {
-            'success': True,
-            'title': f'{actor}电影',
-            'url': f'https://example.com/movie/{actor}.mp4'
-        }
-    else:
-        result = {'success': True, 'title': '默认电影', 'url': 'https://example.com/movie/default.mp4'}
-        
-    return result
-```
-
-```python
-# brain/tools/play_video.py
-import logging
-
-logger = logging.getLogger(__name__)
-
-def play_video_tool(url: str, title: str = None) -> dict:
-    """播放视频工具"""
-    logger.info(f"[Tool] Playing video: {title} from {url}")
-    return {'success': True, 'message': f'Playing: {title or url}'}
-```
-
-```python
-# brain/tools/set_light.py
-import logging
-
-logger = logging.getLogger(__name__)
-
-def set_light_tool(level: int = 100, state: str = None) -> dict:
-    """设置灯光工具"""
-    if state:
-        logger.info(f"[Tool] Light state: {state}")
-        return {'success': True, 'message': f'Light: {state}'}
-    logger.info(f"[Tool] Light brightness: {level}%")
-    return {'success': True, 'message': f'Brightness: {level}%'}
-```
-
-```python
-# brain/tools/speak.py
-import logging
-
-logger = logging.getLogger(__name__)
-
-def speak_tool(message: str) -> dict:
-    """语音通知工具"""
-    logger.info(f"[Tool] Speaking: {message}")
-    return {'success': True, 'message': f'Speaking: {message}'}
-```
-
-- [ ] **Step 5: 实现 LLM 客户端 (简化版)**
-
-```python
-# brain/llm_client.py
-"""
-LLM 客户端 (MVP: 简化版)
-生产环境应使用真实 OpenAI API
-"""
-import logging
-import json
-
-logger = logging.getLogger(__name__)
-
-
-class LLMClient:
-    """LLM 客户端 - 理解用户意图并生成执行计划"""
-    
-    SYSTEM_PROMPT = """你是一个智能家居助手的大脑。你需要：
-1. 理解用户的自然语言请求
-2. 从可用工具中选择合适的工具来完成任务
-3. 生成执行计划
-
-可用工具：
-- search_movie: 搜索电影 (参数: actor, genre)
-- play_video: 在电视播放视频 (参数: url, title)
-- set_light: 设置灯光 (参数: level, state)
-- speak_text: 语音通知 (参数: message)
-
-场景1: "放一部成龙的喜剧片"
-计划: [search_movie(actor="成龙", genre="喜剧"), play_video, set_light(level=30), speak_text]
-
-场景2: "我要吃晚饭了"
-计划: [set_light(level=30), play_audio(type="background_music"), set_light(level=50)]
-
-用户请求: {user_input}
-
-请输出 JSON 格式的执行计划："""
-
-    def __init__(self, api_key: str = None):
-        self.api_key = api_key
-        
-    def understand(self, user_input: str) -> dict:
-        """理解用户输入"""
-        logger.info(f"[LLM] Understanding: {user_input}")
-        
-        # MVP: 简化实现，基于规则匹配
-        if "电影" in user_input or "喜剧片" in user_input:
-            if "成龙" in user_input:
-                return {
-                    'intent': 'play_movie',
-                    'params': {'actor': '成龙', 'genre': '喜剧'}
-                }
-            return {'intent': 'play_movie', 'params': {}}
-            
-        if "晚饭" in user_input or "吃饭" in user_input or "晚餐" in user_input:
-            return {'intent': 'dinner_mode', 'params': {}}
-            
-        return {'intent': 'unknown', 'params': {}}
-        
-    def plan(self, intent: dict, available_tools: list) -> list:
-        """生成执行计划"""
-        logger.info(f"[LLM] Planning for intent: {intent}")
-        
-        if intent['intent'] == 'play_movie':
-            # 1. 先搜索电影
-            movie = self._call_tool('search_movie', **intent['params'])
-            
-            # 2. 然后播放、调光、通知
-            plan = [
-                {'tool': 'play_video', 'params': {'url': movie.get('url'), 'title': movie.get('title')}},
-                {'tool': 'set_light', 'params': {'level': 30}},
-                {'tool': 'speak_text', 'params': {'message': f'《{movie.get("title", "电影")}》已经为您准备好'}}
-            ]
-            
-        elif intent['intent'] == 'dinner_mode':
-            plan = [
-                {'tool': 'set_light', 'params': {'level': 30}},
-                {'tool': 'play_audio', 'params': {'type': 'background_music', 'message': '轻柔背景音乐'}},
-                {'tool': 'set_light_tv', 'params': {'level': 50}}
-            ]
-            
-        else:
-            plan = []
-            
-        return plan
-        
-    def _call_tool(self, tool_name: str, **kwargs) -> dict:
-        """调用工具"""
-        # MVP: 简化实现
-        if tool_name == 'search_movie':
-            actor = kwargs.get('actor', '')
-            if "成龙" in actor:
-                return {'title': '功夫瑜伽', 'url': 'https://example.com/kung_fu_yoga.mp4'}
-            return {'title': '电影', 'url': 'https://example.com/movie.mp4'}
-        return {}
-```
-
-- [ ] **Step 6: 实现 Brain Client**
-
-```python
-# client/brain.py
-import logging
-from client.base import Client
-from brain.llm_client import LLMClient
-from brain.tool_registry import ToolRegistry
-from brain.tools import search_movie_tool, play_video_tool, set_light_tool, speak_tool
-
-logger = logging.getLogger(__name__)
-
-
-class BrainClient(Client):
-    """大脑客户端 - 具备 LLM 理解和任务规划能力"""
-    
-    def __init__(self, config, llm_api_key: str = None):
-        super().__init__(config)
-        self.llm = LLMClient(api_key=llm_api_key)
-        self.tool_registry = ToolRegistry()
-        self._register_tools()
-        
-    def _register_tools(self):
-        """注册可用工具"""
-        self.tool_registry.register('search_movie', search_movie_tool)
-        self.tool_registry.register('play_video', play_video_tool)
-        self.tool_registry.register('set_light', set_light_tool)
-        self.tool_registry.register('speak_text', speak_tool)
-        
-    def on_task_request(self, message: dict):
-        """处理任务请求 (大脑专属)"""
-        if not self.election.is_brain(self.device_id):
-            logger.warning("Not brain, ignoring task request")
-            return
-            
-        user_input = message.get('text', '')
-        request_id = message.get('request_id', '')
-        requester_id = message.get('requester_id', '')
-        
-        logger.info(f"[Brain] Processing request: {user_input}")
-        
-        # 1. 理解意图
-        intent = self.llm.understand(user_input)
-        
-        # 2. 生成计划
-        plan = self.llm.plan(intent, self.tool_registry.list_tools())
-        
-        # 3. 执行计划
-        results = []
-        for step in plan:
-            tool_name = step.get('tool')
-            params = step.get('params', {})
-            
-            result = self.tool_registry.execute(tool_name, **params)
-            results.append({'tool': tool_name, 'result': result})
-            
-            # 调度到对应设备执行
-            self._dispatch_to_device(tool_name, params, request_id)
-            
-        # 4. 通知用户
-        self._notify_user(results, request_id)
-        
-    def _dispatch_to_device(self, tool_name: str, params: dict, request_id: str):
-        """调度任务到对应设备"""
-        # 根据 skill 名称找到执行者
-        executor_id = self._find_executor(tool_name)
-        
-        if executor_id:
-            import time
-            dispatch_msg = {
-                'msg_type': 'task/dispatch',
-                'request_id': request_id,
-                'skill_name': self._tool_to_skill(tool_name),
-                'parameters': params,
-                'executor_id': executor_id,
-                'timestamp': time.time()
-            }
-            self.transport.publish('dooz/task/dispatch', dispatch_msg)
-            logger.info(f"[Brain] Dispatched {tool_name} to {executor_id}")
-            
-    def _find_executor(self, tool_name: str) -> str:
-        """找到能执行工具的设备"""
-        skill_name = self._tool_to_skill(tool_name)
-        
-        # 获取在线设备
-        devices = self.discovery.get_online_devices()
-        devices[self.device_id] = self.config
-        
-        # 查找有对应 skill 的设备
-        for device_id, device in devices.items():
-            if skill_name in device.skills:
-                return device_id
-                
-        return None
-        
-    def _tool_to_skill(self, tool_name: str) -> str:
-        """工具名转 skill 名"""
-        mapping = {
-            'play_video': 'display_video',
-            'set_light': 'set_brightness',
-            'speak_text': 'play_audio',
-            'play_audio': 'play_audio',
-        }
-        return mapping.get(tool_name, tool_name)
-        
-    def _notify_user(self, results: list, request_id: str):
-        """通知用户结果"""
-        import time
-        
-        # 找到有 output 能力的设备
-        devices = self.discovery.get_online_devices()
-        devices[self.device_id] = self.config
-        
-        output_devices = [d for d in devices.values() if d.output]
-        
-        if not output_devices:
-            logger.warning("No output device available")
-            return
-            
-        # 选择一个 output 设备 (简化: 选第一个)
-        notify_device = output_devices[0].device_id
-        
-        # 构建通知消息
-        notify_msg = {
-            'msg_type': 'task/notify',
-            'request_id': request_id,
-            'message': '任务已完成',
-            'source_id': self.device_id,
-            'timestamp': time.time()
-        }
-        
-        self.transport.publish('dooz/task/notify', notify_msg)
-        logger.info(f"[Brain] Notified user via {notify_device}")
-```
-
-- [ ] **Step 7: 运行测试**
-
-```bash
-pytest tests/test_brain.py -v
-```
-
-Expected: PASS
-
-- [ ] **Step 8: Commit**
-
-```bash
-git add brain/ client/brain.py tests/test_brain.py
-git commit -m "feat: add brain client with LLM and tools"
-```
-
----
-
-## Chunk 11: 主入口和运行脚本
-
-**目标:** 创建主入口和运行脚本
-
-### Task 12: 创建主入口
-
-**Files:**
-- Create: `client/main.py`
-- Create: `scripts/run_mvp.sh`
-- Create: `scripts/vpn/start_vpn.sh`
-
-- [ ] **Step 1: 创建 client/main.py**
-
-```python
-# client/main.py
-"""Client 主入口"""
-import argparse
-import logging
-import sys
-import time
-
-from client.base import Client
-from client.brain import BrainClient
-
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
-)
-logger = logging.getLogger(__name__)
-
-
-def main():
-    parser = argparse.ArgumentParser(description='dooz Client')
-    parser.add_argument('--config', required=True, help='Path to config YAML')
-    parser.add_argument('--brain', action='store_true', help='Run as brain (with LLM)')
-    parser.add_argument('--llm-key', help='OpenAI API key (if brain mode)')
-    args = parser.parse_args()
-    
-    logger.info(f"Loading config from: {args.config}")
-    
-    if args.brain:
-        logger.info("Starting in BRAIN mode")
-        client = BrainClient.from_yaml(args.config)
-    else:
-        client = Client.from_yaml(args.config)
-        
-    try:
-        client.start()
-        logger.info(f"Client {client.device_id} started successfully")
-        logger.info(f"Status: {client.get_status()}")
-        
-        # 保持运行
-        while True:
-            time.sleep(1)
-            
-    except KeyboardInterrupt:
-        logger.info("Shutting down...")
-        client.stop()
-        logger.info("Shutdown complete")
-    except Exception as e:
-        logger.error(f"Error: {e}")
-        sys.exit(1)
-
-
-if __name__ == '__main__':
-    main()
-```
-
-- [ ] **Step 2: 创建 run_mvp.sh**
-
-```bash
-#!/bin/bash
-# scripts/run_mvp.sh - 一键启动 5 个客户端
-
-set -e
-
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
-CONFIG_DIR="$PROJECT_DIR/config"
-
-echo "Starting dooz MVP..."
-
-# 检查配置文件
-for config in computer phone speaker tv light; do
-    if [ ! -f "$CONFIG_DIR/${config}.yaml" ]; then
-        echo "Error: Config file not found: $CONFIG_DIR/${config}.yaml"
-        exit 1
-    fi
-done
-
-# 启动 5 个客户端 (后台运行)
-echo "Starting Computer (Brain)..."
-python -m client.main --config "$CONFIG_DIR/computer.yaml" --brain &
-PID_COMPUTER=$!
-
-sleep 1
-
-echo "Starting Phone..."
-python -m client.main --config "$CONFIG_DIR/phone.yaml" &
-PID_PHONE=$!
-
-sleep 1
-
-echo "Starting Speaker..."
-python -m client.main --config "$CONFIG_DIR/speaker.yaml" &
-PID_SPEAKER=$!
-
-sleep 1
-
-echo "Starting TV..."
-python -m client.main --config "$CONFIG_DIR/tv.yaml" &
-PID_TV=$!
-
-sleep 1
-
-echo "Starting Light..."
-python -m client.main --config "$CONFIG_DIR/light.yaml" &
-PID_LIGHT=$!
-
-echo ""
-echo "All clients started!"
-echo "Computer PID: $PID_COMPUTER"
-echo "Phone PID: $PID_PHONE"
-echo "Speaker PID: $PID_SPEAKER"
-echo "TV PID: $PID_TV"
-echo "Light PID: $PID_LIGHT"
-echo ""
-echo "Press Ctrl+C to stop all clients"
-
-# 等待中断
-trap "kill $PID_COMPUTER $PID_PHONE $PID_SPEAKER $PID_TV $PID_LIGHT 2>/dev/null; exit" INT TERM
-
-wait
-```
-
-- [ ] **Step 3: 创建 VPN 启动脚本**
-
-```bash
-#!/bin/bash
-# scripts/vpn/start_vpn.sh - 启动 Headscale VPN
-
-set -e
-
-echo "Starting Headscale VPN..."
-
-# 检查 docker 是否运行
-if ! command -v docker &> /dev/null; then
-    echo "Error: Docker is not installed"
-    exit 1
-fi
-
-# 检查 headscale 是否已存在
-if docker ps -a --format '{{.Names}}' | grep -q "^headscale$"; then
-    echo "Headscale container already exists"
-    
-    if docker ps --format '{{.Names}}' | grep -q "^headscale$"; then
-        echo "Headscale is already running"
-    else
-        echo "Starting existing Headscale container..."
-        docker start headscale
-    fi
-else
-    echo "Creating and starting Headscale container..."
-    docker run -d --name headscale \
-        --volume "$(pwd)/headscale:/var/lib/headscale" \
-        --volume "$(pwd)/headscale/config.yaml:/etc/headscale.yml" \
-        -p 8080:8080 \
-        headscale/headscale \
-        serve &
-        
-    sleep 3
-fi
-
-echo ""
-echo "Headscale started!"
-echo "Access UI at: http://localhost:8080"
-echo ""
-echo "To connect clients, run:"
-echo "  tailscaled --tun=headscale0 --login-server=http://localhost:8080"
-```
-
-- [ ] **Step 4: 设置执行权限**
-
-```bash
-chmod +x scripts/run_mvp.sh
-chmod +x scripts/vpn/start_vpn.sh
-```
-
-- [ ] **Step 5: Commit**
-
-```bash
-git add client/main.py scripts/
-git commit -m "feat: add main entry point and run scripts"
-```
-
----
-
-## Chunk 12: 集成测试
-
-**目标:** 验证两个场景能正确执行
-
-### Task 13: 场景测试
-
-**Files:**
-- Create: `tests/test_scenario1.py`
-- Create: `tests/test_scenario2.py`
-
-- [ ] **Step 1: 创建场景测试**
-
-```python
-# tests/test_scenario1.py
-"""
-场景 1 测试: 播放成龙喜剧片
-预期: TV 播放, Light 调暗, Speaker 通知
-"""
-import pytest
-from unittest.mock import MagicMock, patch
-from client.brain import BrainClient
-from core.types import DeviceInfo
-
-@pytest.fixture
-def brain_client():
-    config = DeviceInfo(
-        device_id="computer_001",
-        name="Computer",
-        role="computer",
-        wisdom=90,
-        output=True,
-        skills=["screen_display", "execute_command"]
-    )
-    with patch('client.base.DiscoveryService'):
-        with patch('client.base.TransportService'):
-            client = BrainClient(config)
-            client.election.current_brain_id = "computer_001"
-            return client
-
-def test_scene1_intent_recognition(brain_client):
-    """测试场景1: 意图识别"""
-    intent = brain_client.llm.understand("放一部成龙的喜剧片")
-    assert intent['intent'] == 'play_movie'
-    assert 'actor' in intent['params']
-
-def test_scene1_plan_generation(brain_client):
-    """测试场景1: 计划生成"""
-    intent = {'intent': 'play_movie', 'params': {'actor': '成龙', 'genre': '喜剧'}}
-    plan = brain_client.llm.plan(intent, [])
-    
-    assert len(plan) >= 3  # play_video, set_light, speak_text
-    
-    tools = [step['tool'] for step in plan]
-    assert 'play_video' in tools
-    assert 'set_light' in tools
-    assert 'speak_text' in tools
-```
-
-```python
-# tests/test_scenario2.py
-"""
-场景 2 测试: 晚餐氛围
-预期: Light 30%, Speaker 播放音乐, TV 50%
-"""
-import pytest
-from client.brain import BrainClient
-from core.types import DeviceInfo
-
-@pytest.fixture
-def brain_client():
-    config = DeviceInfo(
-        device_id="computer_001",
-        name="Computer",
-        role="computer",
-        wisdom=90,
-        output=True,
-        skills=["screen_display", "execute_command"]
-    )
-    with patch('client.base.DiscoveryService'):
-        with patch('client.base.TransportService'):
-            client = BrainClient(config)
-            client.election.current_brain_id = "computer_001"
-            return client
-
-def test_scene2_intent_recognition(brain_client):
-    """测试场景2: 意图识别"""
-    intent = brain_client.llm.understand("我要吃晚饭了")
-    assert intent['intent'] == 'dinner_mode'
-
-def test_scene2_plan_generation(brain_client):
-    """测试场景2: 计划生成"""
-    intent = {'intent': 'dinner_mode', 'params': {}}
-    plan = brain_client.llm.plan(intent, [])
-    
-    assert len(plan) >= 2  # set_light, play_audio, set_light_tv
-    
-    tools = [step['tool'] for step in plan]
-    assert 'set_light' in tools
-    assert 'play_audio' in tools
-```
-
-- [ ] **Step 2: 运行测试**
-
-```bash
-pytest tests/test_scenario1.py tests/test_scenario2.py -v
-```
-
-Expected: PASS
-
-- [ ] **Step 3: Commit**
-
-```bash
-git add tests/test_scenario1.py tests/test_scenario2.py
-git commit -m "test: add scenario tests"
-```
-
----
-
-## 总结
-
-**实现计划包含以下 chunks:**
-1. 项目基础设置 (requirements.txt, 目录结构)
-2. 核心类型定义 (core/types.py)
-3. 设备发现服务 (core/discovery.py)
-4. 大脑选举服务 (core/election.py)
-5. Actor State 管理 (core/actor_state.py)
-6. 消息传输服务 (core/transport.py)
-7. Client 基类 (client/base.py)
-8. Skill 定义 (skills/)
-9. 配置文件 (config/)
-10. Brain 扩展 (brain/, client/brain.py)
-11. 主入口和脚本 (client/main.py, scripts/)
-12. 集成测试 (tests/)
-
-**总任务数:** 约 40-50 个步骤
-
-**预期产出:**
-- 完整的 MVP 代码
-- 单元测试覆盖
-- 可运行的演示脚本
-
----
-
-**Plan complete and saved to `docs/superpowers/plans/2026-03-14-dooz-mvp-implementation-plan.md`. Ready to execute?**
+## 实施顺序
+
+建议按以下顺序执行:
+
+1. **Phase 1**: 创建目录结构 + Server 基础类型
+2. **Phase 2**: Server API + Auth + Tenant Manager
+3. **Phase 3**: FastDDS Gateway + WebSocket
+4. **Phase 4**: LLM Gateway
+5. **Phase 5**: Chat Session Manager
+6. **Phase 6**: Client Python Core
+7. **Phase 7**: Client Skills
