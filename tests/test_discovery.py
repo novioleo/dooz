@@ -75,7 +75,7 @@ class TestDiscoveryServiceAnnounce:
     def test_announce_presence_adds_self_to_online(self):
         device = create_test_device()
         participant = Mock()
-        service = DiscoveryService(device, participant)
+        service = DiscoveryService(device, participant, transport=Mock())
         service.start()
         
         # When device announces presence, it should add itself to online_devices

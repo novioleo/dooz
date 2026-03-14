@@ -4,6 +4,7 @@ device:
   role: "light"
   wisdom: 30
   output: false
+  brain_enabled: false
   skills:
     - name: "toggle_light"
     - name: "set_brightness"

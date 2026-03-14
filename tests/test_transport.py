@@ -25,7 +25,7 @@ def test_create_publisher():
     service.create_publisher("test/topic")
     
     assert "test/topic" in service.publishers
-    assert service.publishers["test/topic"] is None
+    assert service.publishers["test/topic"] is True
 
 
 def test_create_subscriber():

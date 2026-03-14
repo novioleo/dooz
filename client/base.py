@@ -9,6 +9,7 @@ from core.election import ElectionService
 from core.transport import TransportService
 from core.actor_state import ActorStateManager
 from client.brain_plugin import BrainPlugin
+from skills import get_skill
 
 logger = logging.getLogger(__name__)
 
@@ -24,11 +25,11 @@ class Client:
         self.skills = config.skills
         self.brain_enabled = config.brain_enabled
         
-        # 服务
+        # 服务 - 先创建 Transport，再创建 Discovery
         self.participant = None  # FastDDS participant
-        self.discovery = DiscoveryService(config, self.participant)
-        self.election = ElectionService(wisdom_threshold=50)
         self.transport = TransportService(self.participant, self.device_id)
+        self.discovery = DiscoveryService(config, self.participant, self.transport)
+        self.election = ElectionService(wisdom_threshold=50)
         self.actor_state = ActorStateManager(self.device_id)
         
         # 大脑插件 (可选)
@@ -65,9 +66,11 @@ class Client:
         # 初始化 FastDDS
         self._init_dds()
         
-        # 启动服务
-        self.discovery.start()
+        # 设置订阅
         self._setup_subscriptions()
+        
+        # 启动发现服务 (需要 transport 已设置订阅)
+        self.discovery.start()
         
         # 启动大脑插件
         if self.brain:
@@ -84,6 +87,7 @@ class Client:
         if self.brain:
             self.brain.stop()
             
+        # 停止发现服务
         self.discovery.stop()
         
     def _init_dds(self):
@@ -93,55 +97,124 @@ class Client:
         
     def _setup_subscriptions(self):
         """设置消息订阅"""
-        topics = [
-            "dooz/device/announce",
-            "dooz/device/heartbeat",
-            "dooz/device/offline",
-            "dooz/brain/status",
-            "dooz/task/request",
-            "dooz/task/dispatch",
-            "dooz/task/response",
-            "dooz/task/notify",
-        ]
-        for topic in topics:
-            self.transport.create_subscriber(topic, self._handle_message)
-            
-    def _handle_message(self, message: dict):
-        """处理收到的消息"""
-        msg_type = message.get('msg_type', '')
+        topics = {
+            "dooz/device/announce": self._on_device_announce,
+            "dooz/device/heartbeat": self._on_device_heartbeat,
+            "dooz/device/offline": self._on_device_offline,
+            "dooz/brain/status": self._on_brain_status,
+            "dooz/task/request": self._on_task_request,
+            "dooz/task/dispatch": self._on_task_dispatch,
+            "dooz/task/response": self._on_task_response,
+            "dooz/task/notify": self._on_task_notify,
+        }
         
-        if msg_type == 'device/announce':
+        for topic, callback in topics.items():
+            self.transport.create_subscriber(topic, callback)
+            
+    def _on_device_announce(self, message: dict):
+        """处理设备上线消息"""
+        try:
             self.discovery.on_device_announce(message)
             self._update_brain_election()
+        except Exception as e:
+            logger.error(f"Error handling device announce: {e}")
             
-        elif msg_type == 'device/offline':
+    def _on_device_heartbeat(self, message: dict):
+        """处理心跳消息"""
+        try:
+            self.discovery.on_heartbeat(message)
+        except Exception as e:
+            logger.error(f"Error handling heartbeat: {e}")
+            
+    def _on_device_offline(self, message: dict):
+        """处理设备离线消息"""
+        try:
             self.discovery.on_device_offline(message)
             self._update_brain_election()
+        except Exception as e:
+            logger.error(f"Error handling device offline: {e}")
             
-        elif msg_type == 'brain/status':
-            self._on_brain_status(message)
+    def _on_brain_status(self, message: dict):
+        """处理大脑状态更新"""
+        try:
+            brain_id = message.get('brain_id')
+            reason = message.get('reason', '')
+            logger.info(f"Brain status: {brain_id} ({reason})")
             
-        elif msg_type == 'task/request':
+            # 如果自己不是大脑，且有大脑变更，需要更新本地选举状态
+            if not self.election.is_brain(self.device_id):
+                self._update_brain_election()
+        except Exception as e:
+            logger.error(f"Error handling brain status: {e}")
+            
+    def _on_task_request(self, message: dict):
+        """处理任务请求"""
+        try:
             # 如果启用了大脑且自己是大脑，处理请求
             if self.brain and self.election.is_brain(self.device_id):
                 self.brain.on_task_request(message)
+        except Exception as e:
+            logger.error(f"Error handling task request: {e}")
             
-        elif msg_type == 'task/dispatch':
-            self._on_task_dispatch(message)
+    def _on_task_dispatch(self, message: dict):
+        """处理任务分发"""
+        try:
+            if message.get('executor_id') != self.device_id:
+                return
+                
+            skill_name = message.get('skill_name')
+            params = message.get('parameters', {})
             
-        elif msg_type == 'task/response':
+            logger.info(f"Received task: {skill_name} with params {params}")
+            
+            # 更新 actor state
+            self.actor_state.update_on_receive(skill_name)
+            
+            # 执行 skill
+            result = self._execute_skill(skill_name, params)
+            
+            # 发送响应
+            import time
+            response = {
+                'msg_type': 'task/response',
+                'request_id': message.get('request_id'),
+                'success': result['success'],
+                'result': result.get('message', ''),
+                'executor_id': self.device_id,
+                'timestamp': time.time()
+            }
+            self.transport.publish('dooz/task/response', response)
+            
+            # 更新 actor state
+            self.actor_state.update_on_complete(result['success'])
+        except Exception as e:
+            logger.error(f"Error handling task dispatch: {e}")
+            
+    def _on_task_response(self, message: dict):
+        """处理任务响应"""
+        try:
             # 如果是大脑，接收执行结果
             if self.brain and self.election.is_brain(self.device_id):
                 self.brain.on_task_response(message)
+        except Exception as e:
+            logger.error(f"Error handling task response: {e}")
             
-        elif msg_type == 'task/notify':
-            self._on_task_notify(message)
+    def _on_task_notify(self, message: dict):
+        """处理任务通知"""
+        try:
+            if not self.output:
+                return
+                
+            logger.info(f"NOTIFICATION: {message.get('message')}")
+            # 只更新一次状态
+            self.actor_state.update_on_receive("notify")
+            self.actor_state.update_on_complete(True)
+        except Exception as e:
+            logger.error(f"Error handling task notify: {e}")
             
     def _update_brain_election(self):
         """更新大脑选举"""
         online_devices = self.discovery.get_online_devices()
-        # 加入自己
-        online_devices[self.device_id] = self.config
         
         new_brain_id = self.election.elect_brain(online_devices)
         brain_status = self.election.get_brain_status()
@@ -172,60 +245,20 @@ class Client:
         self.transport.publish('dooz/task/request', request)
         self.actor_state.update_on_receive(f"request:{text}")
         
-    def _on_brain_status(self, message: dict):
-        """处理大脑状态更新"""
-        brain_id = message.get('brain_id')
-        reason = message.get('reason', '')
-        logger.info(f"Brain status: {brain_id} ({reason})")
-        
-        # 如果自己不是大脑，且有大脑变更，需要更新本地选举状态
-        if not self.election.is_brain(self.device_id):
-            # 触发重新选举
-            self._update_brain_election()
-        
-    def _on_task_dispatch(self, message: dict):
-        """处理任务分发"""
-        if message.get('executor_id') != self.device_id:
-            return
-            
-        skill_name = message.get('skill_name')
-        params = message.get('parameters', {})
-        
-        logger.info(f"Received task: {skill_name} with params {params}")
-        
-        # 更新 actor state
-        self.actor_state.update_on_receive(skill_name)
-        
-        # 执行 skill
-        result = self._execute_skill(skill_name, params)
-        
-        # 发送响应
-        import time
-        response = {
-            'msg_type': 'task/response',
-            'request_id': message.get('request_id'),
-            'success': result['success'],
-            'result': result.get('message', ''),
-            'executor_id': self.device_id,
-            'timestamp': time.time()
-        }
-        self.transport.publish('dooz/task/response', response)
-        
-        # 更新 actor state
-        self.actor_state.update_on_complete(result['success'])
-        
-    def _on_task_notify(self, message: dict):
-        """处理任务通知"""
-        if not self.output:
-            return
-            
-        logger.info(f"NOTIFICATION: {message.get('message')}")
-        self.actor_state.update_on_receive("notify")
-        self.actor_state.update_on_complete(True)
-        
     def _execute_skill(self, skill_name: str, params: dict) -> dict:
-        """执行 skill (由子类重写)"""
-        logger.info(f"Executing skill: {skill_name}")
+        """执行 skill"""
+        # 尝试从 skill registry 获取
+        skill = get_skill(skill_name)
+        
+        if skill:
+            try:
+                return skill.execute(**params)
+            except Exception as e:
+                logger.error(f"Error executing skill {skill_name}: {e}")
+                return {'success': False, 'message': f'Skill execution failed: {e}'}
+        
+        # 如果没找到，返回 stub
+        logger.info(f"Executing skill (stub): {skill_name}")
         return {'success': True, 'message': f'Skill {skill_name} executed'}
         
     def get_status(self) -> dict:

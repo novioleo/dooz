@@ -4,6 +4,7 @@ device:
   role: "phone"
   wisdom: 70
   output: true
+  brain_enabled: false
   skills:
     - name: "send_notification"
     - name: "vibrate"

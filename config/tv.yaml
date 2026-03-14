@@ -4,6 +4,7 @@ device:
   role: "tv"
   wisdom: 60
   output: true
+  brain_enabled: false
   skills:
     - name: "display_video"
     - name: "display_image"

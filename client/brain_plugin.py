@@ -17,6 +17,8 @@ class BrainPlugin:
         
         # 待处理的请求
         self._pending_requests = {}
+        # 跟踪每个请求的已完成任务数
+        self._request_task_count = {}
         
     def _register_tools(self):
         """注册可用工具"""
@@ -47,20 +49,39 @@ class BrainPlugin:
         # 2. 生成计划
         plan = self.llm.plan(intent, self.tool_registry.list_tools())
         
+        if not plan:
+            logger.warning(f"[Brain] No plan generated for: {user_input}")
+            return
+        
         # 保存请求信息用于后续处理响应
         self._pending_requests[request_id] = {
             'plan': plan,
             'requester_id': requester_id,
             'user_input': user_input
         }
+        self._request_task_count[request_id] = 0
+        self._total_tasks[request_id] = len(plan)
         
-        # 3. 执行计划 - 调度到对应设备
+        # 3. 执行计划中的每个步骤
         for step in plan:
             tool_name = step.get('tool')
             params = step.get('params', {})
             
-            # 调度到对应设备执行
-            self._dispatch_to_device(tool_name, params, request_id)
+            # 先在本地执行工具
+            tool_result = self._execute_tool(tool_name, params)
+            
+            # 然后调度到对应设备
+            self._dispatch_to_device(tool_name, params, request_id, tool_result)
+            
+    def _execute_tool(self, tool_name: str, params: dict) -> dict:
+        """执行工具并返回结果"""
+        try:
+            result = self.tool_registry.execute(tool_name, **params)
+            logger.info(f"[Brain] Tool {tool_name} executed: {result}")
+            return result
+        except Exception as e:
+            logger.error(f"[Brain] Tool {tool_name} execution error: {e}")
+            return {'success': False, 'error': str(e)}
             
     def on_task_response(self, message: dict):
         """处理任务执行结果"""
@@ -71,28 +92,43 @@ class BrainPlugin:
         if request_id not in self._pending_requests:
             return
             
-        request_info = self._pending_requests[request_id]
-        plan = request_info.get('plan', [])
+        # 更新完成的任务数
+        self._request_task_count[request_id] = self._request_task_count.get(request_id, 0) + 1
         
         # 检查是否所有任务都完成了
-        # 这里简化处理，只要收到响应就通知用户
-        if success:
+        total = self._total_tasks.get(request_id, 0)
+        completed = self._request_task_count[request_id]
+        
+        if completed >= total:
+            request_info = self._pending_requests[request_id]
+            
+            # 通知用户
             self._notify_user(request_info, result)
             
-        # 清理待处理请求
-        del self._pending_requests[request_id]
+            # 清理
+            del self._pending_requests[request_id]
+            del self._request_task_count[request_id]
+            if request_id in self._total_tasks:
+                del self._total_tasks[request_id]
         
-    def _dispatch_to_device(self, tool_name: str, params: dict, request_id: str):
+    # 添加类属性来存储
+    _total_tasks = {}
+    
+    def _dispatch_to_device(self, tool_name: str, params: dict, request_id: str, tool_result: dict):
         """调度任务到对应设备"""
         executor_id = self._find_executor(tool_name)
         
         if executor_id:
             import time
+            # 将工具执行结果添加到参数中
+            dispatch_params = params.copy()
+            dispatch_params['_tool_result'] = tool_result
+            
             dispatch_msg = {
                 'msg_type': 'task/dispatch',
                 'request_id': request_id,
                 'skill_name': self._tool_to_skill(tool_name),
-                'parameters': params,
+                'parameters': dispatch_params,
                 'executor_id': executor_id,
                 'timestamp': time.time()
             }

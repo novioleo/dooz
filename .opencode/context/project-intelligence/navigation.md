@@ -1,4 +1,4 @@
-<!-- Context: project-intelligence/nav | Priority: high | Version: 1.0 | Updated: 2025-01-12 -->
+<!-- Context: project-intelligence/nav | Priority: critical | Version: 2.0 | Updated: 2026-03-14 -->
 
 # Project Intelligence
 
@@ -18,6 +18,17 @@
 
 ## Quick Routes
 
+### For dooz Project
+
+| What You Need | File | Description |
+|---------------|------|-------------|
+| Tech stack & architecture | `technical-domain.md` | ROS2, Tailscale, Kotlin, Swift |
+| Development setup | `technical-domain.md` | ROS2, Android, macOS SDK setup |
+| Naming conventions | `technical-domain.md` | ROS2 packages, messages, services |
+| MVP roadmap | `technical-domain.md` | Phase 1-3 milestones |
+
+### General
+
 | What You Need | File | Description |
 |---------------|------|-------------|
 | Understand the "why" | `business-domain.md` | Problem, users, value proposition |
@@ -26,6 +37,44 @@
 | Know the context | `decisions-log.md` | Why decisions were made |
 | Current state | `living-notes.md` | Active issues and open questions |
 | All of the above | Read all files in order | Full project intelligence |
+
+---
+
+## dooz Project Overview
+
+**dooz** — AI-Friendly Hardware Module & System
+
+> "One sentence — the device thinks, acts, checks, and reports by itself."
+
+### Core Innovations
+
+- **Dynamic Brain Election** — Intelligent leader election based on compute power, availability, task success
+- **Distributed ReAct** — Direct device-to-device communication (no master-slave polling)
+- **ROS2-Based Protocol** — Decentralized message exchange via ROS2 topics
+- **Tailscale VPN** — Zero-config device discovery and secure mesh networking
+
+### Tech Stack
+
+| Component | Technology |
+|-----------|------------|
+| Protocol | ROS2 (Jazzy Jalisco / Humble) |
+| Network | Tailscale |
+| Core | C++ / Rust |
+| Android | Kotlin 1.9.x |
+| macOS | Swift 5.9+ |
+
+### Project Location
+
+```
+dooz/
+├── core/dooz_ros2/           # ROS2 packages (core, discovery, election, transport)
+├── core/dooz_protocol/       # Protocol definitions (msg/srv/action)
+├── clients/android/         # Kotlin SDK
+├── clients/macos/           # Swift SDK
+└── docs/                    # Documentation (dev/user/contributor)
+```
+
+---
 
 ## Usage
 
@@ -39,13 +88,22 @@
 - Technical focus → `technical-domain.md`
 - Decision context → `decisions-log.md`
 
+**For dooz development**:
+- Tech stack & setup → `technical-domain.md`
+- Code patterns → Follow ROS2 conventions (see technical-domain.md)
+
+---
+
 ## Integration
 
 This folder is referenced from:
 - `.opencode/context/core/standards/project-intelligence.md` (standards and patterns)
 - `.opencode/context/core/system/context-guide.md` (context loading)
+- `.opencode/context/projects/dooz.md` (project-specific context)
 
 See `.opencode/context/core/context-system.md` for the broader context architecture.
+
+---
 
 ## Maintenance
 
@@ -55,11 +113,6 @@ Keep this folder current:
 - Review `living-notes.md` regularly
 - Archive resolved items from decisions-log.md
 
-**Management Guide**: See `.opencode/context/core/standards/project-intelligence-management.md` for complete lifecycle management including:
-- How to update, add, and remove files
-- How to create new subfolders
-- Version tracking and frontmatter standards
-- Quality checklists and anti-patterns
-- Governance and ownership
+**Version**: 2.0 (2026-03-14) — Updated for dooz project
 
-See `.opencode/context/core/standards/project-intelligence.md` for the standard itself.
+**Management Guide**: See `.opencode/context/core/standards/project-intelligence-management.md` for complete lifecycle management.

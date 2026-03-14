@@ -4,6 +4,7 @@ device:
   role: "speaker"
   wisdom: 50
   output: true
+  brain_enabled: false
   skills:
     - name: "play_audio"
     - name: "set_volume"
