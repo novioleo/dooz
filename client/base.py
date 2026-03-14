@@ -66,6 +66,9 @@ class Client:
         # 初始化 FastDDS
         self._init_dds()
         
+        # 创建发布者 (必须在订阅之前)
+        self._create_publishers()
+        
         # 设置订阅
         self._setup_subscriptions()
         
@@ -77,6 +80,21 @@ class Client:
             self.brain.start()
         
         logger.info(f"Client {self.device_id} started")
+        
+    def _create_publishers(self):
+        """创建消息发布者"""
+        topics = [
+            "dooz/device/announce",
+            "dooz/device/heartbeat",
+            "dooz/device/offline",
+            "dooz/brain/status",
+            "dooz/task/request",
+            "dooz/task/dispatch",
+            "dooz/task/response",
+            "dooz/task/notify",
+        ]
+        for topic in topics:
+            self.transport.create_publisher(topic)
         
     def stop(self):
         """停止客户端"""
