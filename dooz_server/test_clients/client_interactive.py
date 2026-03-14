@@ -252,6 +252,14 @@ class InteractiveClient:
             
         elif command == 'quit' or command == 'exit' or command == 'q':
             self.running = False
+            print(self.color('yellow', '\n👋 Disconnecting...'))
+            
+            # Clean up
+            if self.websocket:
+                try:
+                    await self.websocket.close()
+                except:
+                    pass
             
         elif command == '':
             pass
@@ -291,14 +299,27 @@ class InteractiveClient:
                     break
                 except KeyboardInterrupt:
                     print(self.color('yellow', '\n\nInterrupted. Type "quit" to exit.'))
+                    self.running = False
+                    break
                     
         finally:
             self.running = False
-            receive_task.cancel()
-            heartbeat_task.cancel()
             
+            # Cancel background tasks gracefully
+            for task in [receive_task, heartbeat_task]:
+                if task and not task.done():
+                    task.cancel()
+                    try:
+                        await task
+                    except (asyncio.CancelledError, asyncio.TimeoutError):
+                        pass
+            
+            # Ensure websocket is closed
             if self.websocket:
-                await self.websocket.close()
+                try:
+                    await self.websocket.close()
+                except:
+                    pass
             
             print(self.color('yellow', '\n👋 Disconnected. Goodbye!'))
 
