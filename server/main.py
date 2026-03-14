@@ -4,7 +4,7 @@ import logging
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from server.api import auth, tenant
+from server.api import auth, tenant, websocket
 from server.tenant.manager import tenant_manager
 
 logging.basicConfig(level=logging.INFO)
@@ -30,6 +30,7 @@ app.add_middleware(
 
 app.include_router(auth.router, prefix="/auth", tags=["auth"])
 app.include_router(tenant.router, prefix="/tenant", tags=["tenant"])
+app.include_router(websocket.router, prefix="/ws", tags=["websocket"])
 
 auth.set_tenant_manager(tenant_manager)
 tenant.set_tenant_manager(tenant_manager)
