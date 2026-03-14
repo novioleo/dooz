@@ -17,25 +17,36 @@ _clients: Dict[str, WebSocket] = {}
 
 @router.websocket("/tenant/{tenant_id}")
 async def ws_endpoint(ws: WebSocket, tenant_id: str):
+    logger.info(f"WebSocket connection request: tenant={tenant_id}")
+    
     token = ws.query_params.get("token")
+    logger.info(f"Token: {token[:20] if token else None}...")
+    
     if not token:
-        await ws.close(code=4001)
+        await ws.close(code=4001, reason="Missing token")
         return
     
+    # 验证 token (必须在 accept 之前)
     try:
         from server.api.auth import verify_token
         payload = verify_token(token)
         client_id = payload.get("sub")
+        logger.info(f"Client verified: {client_id}")
+        
         if payload.get("tenant_id") != tenant_id:
-            await ws.close(code=4003)
+            await ws.close(code=4003, reason="Tenant mismatch")
             return
-    except:
-        await ws.close(code=4002)
+    except Exception as e:
+        logger.error(f"Token validation error: {e}")
+        await ws.close(code=4002, reason=f"Invalid token: {e}")
         return
     
+    # 接受连接
     await ws.accept()
+    logger.info(f"WebSocket accepted for {client_id}")
     _clients[client_id] = ws
     
+    # 创建回调
     def make_callback(ws_client_id: str):
         async def callback(message: dict):
             executor_id = message.get("executor_id", "")
@@ -43,8 +54,8 @@ async def ws_endpoint(ws: WebSocket, tenant_id: str):
                 return
             try:
                 await ws.send_json(message)
-            except Exception:
-                pass
+            except Exception as e:
+                logger.error(f"Error sending to client: {e}")
         return callback
     
     topics = [
@@ -60,26 +71,31 @@ async def ws_endpoint(ws: WebSocket, tenant_id: str):
         callbacks[topic] = cb
         bus.subscribe(topic, cb)
     
+    logger.info(f"Subscribed to topics: {topics}")
+    
+    topics_map = {
+        "device/announce": TopicPrefix.device_announce(tenant_id),
+        "device/heartbeat": TopicPrefix.device_heartbeat(tenant_id),
+        "device/offline": TopicPrefix.device_offline(tenant_id),
+        "task/request": TopicPrefix.task_request(tenant_id),
+        "task/dispatch": TopicPrefix.task_dispatch(tenant_id),
+        "task/response": TopicPrefix.task_response(tenant_id),
+    }
+    
     try:
-        async for msg in ws:
-            data = json.loads(msg)
-            msg_type = data.get("msg_type", "")
-            
-            topics_map = {
-                "device/announce": TopicPrefix.device_announce(tenant_id),
-                "device/heartbeat": TopicPrefix.device_heartbeat(tenant_id),
-                "device/offline": TopicPrefix.device_offline(tenant_id),
-                "task/request": TopicPrefix.task_request(tenant_id),
-                "task/dispatch": TopicPrefix.task_dispatch(tenant_id),
-                "task/response": TopicPrefix.task_response(tenant_id),
-            }
+        while True:
+            # 使用 recv() 而不是 async for
+            data = await ws.receive_text()
+            msg = json.loads(data)
+            msg_type = msg.get("msg_type", "")
+            logger.info(f"Received: {msg_type}")
             
             topic = topics_map.get(msg_type)
             if topic:
-                bus.publish(topic, data)
+                bus.publish(topic, msg)
                 
     except WebSocketDisconnect:
-        pass
+        logger.info(f"Client {client_id} disconnected")
     finally:
         for topic, cb in callbacks.items():
             bus.unsubscribe(topic, cb)

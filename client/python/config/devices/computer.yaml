@@ -1,10 +1,15 @@
 device:
-  id: "computer_001"
+  id: "computer-001"
   name: "Computer"
-  role: "computer"
   wisdom: 90
   output: true
-  brain_enabled: true
   skills:
     - name: "screen_display"
-    - name: "execute_command"
+    - name: "display_video"
+
+server:
+  url: "http://localhost:8003"
+  tenant_id: "tenant-3e2c7c36"
+  auth:
+    client_id: "client-b6e56374"
+    client_secret: "3a2b0355e0314362"

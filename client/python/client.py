@@ -31,19 +31,27 @@ class Client:
         self._handlers = {}
     
     async def connect(self) -> bool:
+        # 获取 token
         async with httpx.AsyncClient() as http:
             resp = await http.post(
                 f"{self.server_url}/auth/token",
                 data={"username": self.client_id, "password": self.client_secret}
             )
             if resp.status_code != 200:
-                logger.error("Auth failed")
+                logger.error(f"Auth failed: {resp.status_code}")
                 return False
             self._token = resp.json()["access_token"]
         
+        # 连接 WebSocket
         ws_url = f"{self.server_url.replace('http', 'ws')}/ws/tenant/{self.tenant_id}?token={self._token}"
+        logger.info(f"Connecting to {ws_url}")
         self._ws = await websockets.connect(ws_url)
+        logger.info("WebSocket connected")
         
+        # 等待一小段时间确保连接稳定
+        await asyncio.sleep(0.5)
+        
+        # 发送 announce
         await self.send({
             "msg_type": "device/announce",
             "device": {
