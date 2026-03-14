@@ -15,5 +15,8 @@ temp.txt
 # git worktrees
 .worktrees/
 worktrees/
-
-# 
+# python cache
+__pycache__
+*.pyc
+*.pyo
+*.pyd
