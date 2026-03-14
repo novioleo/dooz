@@ -193,8 +193,13 @@ async def websocket_endpoint(websocket: WebSocket, client_id: str):
     ws_mgr = get_ws_manager()
     await ws_mgr.connect(client_id, websocket)
     
-    # Register with client manager
+    # Register with client manager (auto-register if not exists)
     client_manager = get_client_manager()
+    existing_client = client_manager.get_client_info(client_id)
+    if not existing_client:
+        # Auto-register new client with name derived from client_id
+        client_name = client_id.split('-')[0].capitalize() if '-' in client_id else client_id
+        client_manager.register_client(client_name, "WebSocket")
     client_manager.add_connection(client_id, websocket)
     
     # Record initial heartbeat

@@ -1,7 +1,7 @@
 # dooz_server/test_clients/client_bob.py
 """Bob - Test client 2."""
 import asyncio
-from .client_base import WebSocketClient
+from client_base import WebSocketClient
 
 
 class BobClient(WebSocketClient):

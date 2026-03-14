@@ -20,8 +20,4 @@ __pycache__
 *.pyc
 *.pyo
 *.pyd-e 
-# python
-__pycache__/
-*.pyc
-*.pyo
-.pytest_cache/
+.venv/

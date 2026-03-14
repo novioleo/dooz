@@ -2,7 +2,7 @@
 """Alice - Test client 1."""
 import asyncio
 import httpx
-from .client_base import WebSocketClient
+from client_base import WebSocketClient
 
 
 class AliceClient(WebSocketClient):
