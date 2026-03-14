@@ -19,4 +19,9 @@ worktrees/
 __pycache__
 *.pyc
 *.pyo
-*.pyd
+*.pyd-e 
+# python
+__pycache__/
+*.pyc
+*.pyo
+.pytest_cache/
