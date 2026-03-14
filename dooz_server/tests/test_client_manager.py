@@ -21,7 +21,7 @@ def test_unregister_client(client_manager):
 
 
 def test_get_client_info(client_manager):
-    client_id = client_manager.register_client("user1", "WebSocket")
+    client_id = client_manager.register_client(client_id="test-001", name="user1", connection_type="WebSocket")
     info = client_manager.get_client_info(client_id)
     assert info is not None
     assert info.name == "user1"
