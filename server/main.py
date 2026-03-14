@@ -4,6 +4,8 @@ import logging
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from server.api import auth, tenant
+from server.tenant.manager import tenant_manager
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -25,6 +27,12 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+app.include_router(auth.router, prefix="/auth", tags=["auth"])
+app.include_router(tenant.router, prefix="/tenant", tags=["tenant"])
+
+auth.set_tenant_manager(tenant_manager)
+tenant.set_tenant_manager(tenant_manager)
 
 
 @app.get("/health")
