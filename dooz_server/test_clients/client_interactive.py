@@ -143,13 +143,19 @@ class InteractiveClient:
         """Receive and handle messages."""
         try:
             while self.running and self.connected:
-                data = await self.websocket.recv()
-                message = json.loads(data)
-                self.print_received(message)
+                try:
+                    data = await asyncio.wait_for(self.websocket.recv(), timeout=1.0)
+                    message = json.loads(data)
+                    self.print_received(message)
+                except asyncio.TimeoutError:
+                    continue
         except websockets.exceptions.ConnectionClosed:
             if self.running:
                 print(self.color('red', '\n✗ Connection closed by server'))
                 self.connected = False
+        except asyncio.CancelledError:
+            # Task was cancelled, exit gracefully
+            pass
         except Exception as e:
             if self.running:
                 print(self.color('red', f'\n✗ Error receiving: {e}'))
@@ -157,12 +163,17 @@ class InteractiveClient:
     
     async def heartbeat_loop(self):
         """Send periodic heartbeats."""
-        while self.running and self.connected:
-            await asyncio.sleep(10)
-            try:
-                await self.send({"type": "heartbeat"})
-            except:
-                pass
+        try:
+            while self.running and self.connected:
+                await asyncio.sleep(10)
+                if self.running and self.connected:
+                    try:
+                        await self.send({"type": "heartbeat"})
+                    except:
+                        pass
+        except asyncio.CancelledError:
+            # Task was cancelled, exit gracefully
+            pass
     
     async def list_clients(self):
         """List all connected clients via HTTP."""
@@ -304,22 +315,26 @@ class InteractiveClient:
                     
         finally:
             self.running = False
+            self.connected = False
             
-            # Cancel background tasks gracefully
-            for task in [receive_task, heartbeat_task]:
-                if task and not task.done():
-                    task.cancel()
-                    try:
-                        await task
-                    except (asyncio.CancelledError, asyncio.TimeoutError):
-                        pass
-            
-            # Ensure websocket is closed
+            # Close websocket first to unblock receive
             if self.websocket:
                 try:
                     await self.websocket.close()
                 except:
                     pass
+            
+            # Cancel background tasks
+            for task in [receive_task, heartbeat_task]:
+                if task and not task.done():
+                    task.cancel()
+            
+            # Wait for tasks to finish with timeout
+            done, pending = await asyncio.wait(
+                [receive_task, heartbeat_task], 
+                timeout=2.0,
+                return_when=asyncio.ALL_COMPLETED
+            )
             
             print(self.color('yellow', '\n👋 Disconnected. Goodbye!'))
 
