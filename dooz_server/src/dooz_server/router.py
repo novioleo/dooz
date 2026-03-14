@@ -267,4 +267,5 @@ async def websocket_endpoint(websocket: WebSocket, client_id: str):
     except WebSocketDisconnect:
         ws_mgr.disconnect(client_id)
         heartbeat_monitor.remove_client(client_id)
+        client_manager.remove_connection(client_id)
         logger.info(f"WebSocket disconnected: client_id={client_id}")
