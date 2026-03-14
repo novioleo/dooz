@@ -1,0 +1,37 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  "plugin": [
+    "opencode-handoff"
+  ],
+  "default_agent": "OpenCoder",
+  "mcp": {
+    "bash—mcp": {
+      "type": "local",
+      "command": [
+        "npx",
+        "bash-mcp"
+      ],
+      "environment": {
+        "BASH_MCP_MAX_OUTPUT_SIZE": "102400",
+        "BASH_MCP_TEMP_DIR": "/tmp/bash-mcp-outputs"
+      },
+      "enabled": true
+    },
+    "context7": {
+      "type": "remote",
+      "url": "https://mcp.context7.com/mcp",
+      "headers": {
+        "CONTEXT7_API_KEY": "ctx7sk-9defa3f3-4a09-4f36-92ad-f95e792658a4"
+      },
+      "enabled": true
+    },
+    "grep-mcp": {
+      "type": "local",
+      "command": [
+        "uvx",
+        "grep-mcp"
+      ],
+      "enabled": true
+    }
+  }
+}
