@@ -21,8 +21,6 @@ class InteractiveClient:
         self.connected = False
         self.received_messages = []
         self.sent_messages = []
-        self.last_heartbeat = None
-        self.heartbeat_count = 0
         
         # Colors for terminal output
         self.colors = {
@@ -63,21 +61,8 @@ class InteractiveClient:
         print(self.color('white', '  quit                        - Disconnect and exit'))
         print()
     
-    def _clear_status_line(self):
-        """Clear the status line at bottom."""
-        sys.stdout.write(f"\033[{self._get_terminal_height()}H\033[K")
-        sys.stdout.flush()
-    
-    def _restore_status_line(self):
-        """Restore the status line at bottom."""
-        if self.last_heartbeat:
-            self._update_status_line()
-    
     def print_received(self, message: dict):
         """Print received message."""
-        # Clear status line first
-        self._clear_status_line()
-        
         msg_type = message.get('type')
         
         if msg_type == 'message':
@@ -130,33 +115,6 @@ class InteractiveClient:
             print(f"\n{self.color('red', '⏰')} Message expired (not read): {content}")
             print(f"   {self.color('dim', f'To: {to_client}')}")
             print()
-            
-        elif msg_type == 'heartbeat_ack':
-            self.last_heartbeat = "♥"
-            self.heartbeat_count += 1
-            self._update_status_line()
-            
-        elif msg_type == 'pong':
-            self.last_heartbeat = "♥"
-            self.heartbeat_count += 1
-            self._update_status_line()
-        
-        # Restore status line after printing
-        self._restore_status_line()
-    
-    def _update_status_line(self):
-        """Update the status line at the bottom of the screen."""
-        status = f"{self.color('dim', '●')} Connected | ♥ {self.heartbeat_count}"
-        # Use ANSI escape to move to last line and clear it
-        sys.stdout.write(f"\033[{self._get_terminal_height()}H\033[K{status}\033[{self._get_terminal_height()-1}H")
-        sys.stdout.flush()
-    
-    def _get_terminal_height(self):
-        """Get terminal height."""
-        try:
-            return os.get_terminal_size().lines
-        except:
-            return 24
     
     async def connect(self):
         """Connect to WebSocket server."""
