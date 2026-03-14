@@ -8,12 +8,13 @@ from core.discovery import DiscoveryService
 from core.election import ElectionService
 from core.transport import TransportService
 from core.actor_state import ActorStateManager
+from client.brain_plugin import BrainPlugin
 
 logger = logging.getLogger(__name__)
 
 
 class Client:
-    """设备客户端基类"""
+    """设备客户端基类 - 支持可选的大脑插件"""
     
     def __init__(self, config: DeviceInfo):
         self.config = config
@@ -21,6 +22,7 @@ class Client:
         self.wisdom = config.wisdom
         self.output = config.output
         self.skills = config.skills
+        self.brain_enabled = config.brain_enabled
         
         # 服务
         self.participant = None  # FastDDS participant
@@ -28,6 +30,12 @@ class Client:
         self.election = ElectionService(wisdom_threshold=50)
         self.transport = TransportService(self.participant, self.device_id)
         self.actor_state = ActorStateManager(self.device_id)
+        
+        # 大脑插件 (可选)
+        self.brain: Optional[BrainPlugin] = None
+        if self.brain_enabled:
+            self.brain = BrainPlugin(self)
+            logger.info(f"Brain plugin enabled for {self.device_id}")
         
         self._is_running = False
         
@@ -44,6 +52,7 @@ class Client:
             role=device_data['role'],
             wisdom=device_data['wisdom'],
             output=device_data['output'],
+            brain_enabled=device_data.get('brain_enabled', False),
             skills=[s['name'] for s in device_data.get('skills', [])]
         )
         return cls(config)
@@ -60,12 +69,21 @@ class Client:
         self.discovery.start()
         self._setup_subscriptions()
         
+        # 启动大脑插件
+        if self.brain:
+            self.brain.start()
+        
         logger.info(f"Client {self.device_id} started")
         
     def stop(self):
         """停止客户端"""
         logger.info(f"Stopping client: {self.device_id}")
         self._is_running = False
+        
+        # 停止大脑插件
+        if self.brain:
+            self.brain.stop()
+            
         self.discovery.stop()
         
     def _init_dds(self):
@@ -80,7 +98,9 @@ class Client:
             "dooz/device/heartbeat",
             "dooz/device/offline",
             "dooz/brain/status",
+            "dooz/task/request",
             "dooz/task/dispatch",
+            "dooz/task/response",
             "dooz/task/notify",
         ]
         for topic in topics:
@@ -101,8 +121,18 @@ class Client:
         elif msg_type == 'brain/status':
             self._on_brain_status(message)
             
+        elif msg_type == 'task/request':
+            # 如果启用了大脑且自己是大脑，处理请求
+            if self.brain and self.election.is_brain(self.device_id):
+                self.brain.on_task_request(message)
+            
         elif msg_type == 'task/dispatch':
             self._on_task_dispatch(message)
+            
+        elif msg_type == 'task/response':
+            # 如果是大脑，接收执行结果
+            if self.brain and self.election.is_brain(self.device_id):
+                self.brain.on_task_response(message)
             
         elif msg_type == 'task/notify':
             self._on_task_notify(message)
@@ -144,7 +174,14 @@ class Client:
         
     def _on_brain_status(self, message: dict):
         """处理大脑状态更新"""
-        logger.info(f"Brain status: {message.get('brain_id')} ({message.get('reason')})")
+        brain_id = message.get('brain_id')
+        reason = message.get('reason', '')
+        logger.info(f"Brain status: {brain_id} ({reason})")
+        
+        # 如果自己不是大脑，且有大脑变更，需要更新本地选举状态
+        if not self.election.is_brain(self.device_id):
+            # 触发重新选举
+            self._update_brain_election()
         
     def _on_task_dispatch(self, message: dict):
         """处理任务分发"""
@@ -197,6 +234,7 @@ class Client:
             'device_id': self.device_id,
             'wisdom': self.wisdom,
             'output': self.output,
+            'brain_enabled': self.brain_enabled,
             'skills': self.skills,
             'is_brain': self.election.is_brain(self.device_id),
             'actor_state': {

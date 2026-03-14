@@ -5,7 +5,6 @@ import sys
 import time
 
 from client.base import Client
-from client.brain import BrainClient
 
 logging.basicConfig(
     level=logging.INFO,
@@ -17,18 +16,16 @@ logger = logging.getLogger(__name__)
 def main():
     parser = argparse.ArgumentParser(description='dooz Client')
     parser.add_argument('--config', required=True, help='Path to config YAML')
-    parser.add_argument('--brain', action='store_true', help='Run as brain (with LLM)')
-    parser.add_argument('--llm-key', help='OpenAI API key (if brain mode)')
+    parser.add_argument('--llm-key', help='OpenAI API key (if brain enabled)')
     args = parser.parse_args()
     
     logger.info(f"Loading config from: {args.config}")
     
-    if args.brain:
-        logger.info("Starting in BRAIN mode")
-        client = BrainClient.from_yaml(args.config)
-    else:
-        client = Client.from_yaml(args.config)
-        
+    client = Client.from_yaml(args.config)
+    
+    if client.brain_enabled:
+        logger.info("Brain plugin enabled for this client")
+    
     try:
         client.start()
         logger.info(f"Client {client.device_id} started successfully")

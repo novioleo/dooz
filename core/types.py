@@ -24,6 +24,7 @@ class DeviceInfo:
     role: str
     wisdom: int
     output: bool
+    brain_enabled: bool = False  # 是否启用大脑功能
     skills: List[str] = field(default_factory=list)
 
 
