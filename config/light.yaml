@@ -1,0 +1,9 @@
+device:
+  id: "light_001"
+  name: "Light"
+  role: "light"
+  wisdom: 30
+  output: false
+  skills:
+    - name: "toggle_light"
+    - name: "set_brightness"

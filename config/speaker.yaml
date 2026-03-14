@@ -1,0 +1,9 @@
+device:
+  id: "speaker_001"
+  name: "Speaker"
+  role: "speaker"
+  wisdom: 50
+  output: true
+  skills:
+    - name: "play_audio"
+    - name: "set_volume"

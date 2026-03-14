@@ -1,0 +1,9 @@
+device:
+  id: "tv_001"
+  name: "TV"
+  role: "tv"
+  wisdom: 60
+  output: true
+  skills:
+    - name: "display_video"
+    - name: "display_image"

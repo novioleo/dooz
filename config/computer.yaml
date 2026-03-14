@@ -1,0 +1,9 @@
+device:
+  id: "computer_001"
+  name: "Computer"
+  role: "computer"
+  wisdom: 90
+  output: true
+  skills:
+    - name: "screen_display"
+    - name: "execute_command"

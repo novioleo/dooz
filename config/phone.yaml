@@ -1,0 +1,9 @@
+device:
+  id: "phone_001"
+  name: "Phone"
+  role: "phone"
+  wisdom: 70
+  output: true
+  skills:
+    - name: "send_notification"
+    - name: "vibrate"
