@@ -1,222 +1,231 @@
 # dooz
 
-**AI-Friendly Hardware Module & System**
+**分布式多智能体协作系统**
 
-> "One sentence — the device thinks, acts, checks, and reports by itself."
+> 让每个设备成为真正的智能体，通过自然语言与用户交互，自主协作完成复杂任务。
 
-[![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
-[![ROS2](https://img.shields.io/badge/ROS2-Jazzy%20Jalisco-brightgreen)](https://docs.ros.org/en/jazzy/)
-[![Status](https://img.shields.io/badge/Status-Concept-orange)]()
-
----
-
-## Overview
-
-dooz is a **software-hardware integrated intelligent execution system** that seamlessly connects devices, software, and terminals around human needs. Instead of manual pairing, complex rule configuration, or central server polling — users simply speak to dooz, and the entire ecosystem executes the task autonomously.
-
-### Core Vision
-
-Transform every device into a **sub-agent** that collaborates dynamically without central control. Each device (hardware module, mobile app, desktop software, cloud service) operates as an intelligent entity, with a dynamically elected "brain node" coordinating task distribution and execution.
-
-### Key Innovations
-
-| Feature | Description |
-|---------|-------------|
-| **Dynamic Brain Election** | Intelligent leader election based on compute power, availability, and task success rate |
-| **Distributed ReAct** | Devices communicate directly, eliminating master-slave polling inefficiency |
-| **ROS2-Based Protocol** | Decentralized communication using ROS2 topics for efficient message exchange |
-| **Tailscale VPN** | Zero-config device discovery and secure mesh networking |
+[![Python](https://img.shields.io/badge/Python-3.10+-blue)](https://www.python.org/)
+[![Status](https://img.shields.io/badge/Status-MVP-orange)]()
 
 ---
 
-## Architecture
+## 愿景
 
-### System Layers
+dooz 是一个分布式多智能体协作系统：
+
+- **每个设备都是智能体**：手机、电视、音箱、灯都作为 Agent 接入
+- **原生智能体协调**：每个租户有一个原生智能体（Native Agent）负责任务拆解和调度
+- **LLM 能力共享**：租户配置一次 LLM，所有智能体都能调用
+- **设备间直接协作**：通过 Pub/Sub 消息机制，智能体之间可以直接协作
+
+---
+
+## 架构
 
 ```
-┌─────────────────────────────────────────────────────────────┐
-│                      dooz System                             │
-├─────────────────────────────────────────────────────────────┤
-│  ┌─────────────┐  ┌─────────────┐  ┌─────────────────────┐ │
-│  │  Android    │  │    macOS    │  │    Linux/C++        │ │
-│  │   Client    │  │   Client    │  │      Client         │ │
-│  │  (Kotlin)   │  │   (Swift)   │  │     (Future)        │ │
-│  └──────┬──────┘  └──────┬──────┘  └──────────┬──────────┘ │
-│         │                 │                      │            │
-│         └─────────────────┼──────────────────────┘            │
-│                           │                                   │
-│                    ┌──────▼──────┐                             │
-│                    │   ROS2      │                             │
-│                    │   Core      │                             │
-│                    │  Framework  │                             │
-│                    └──────┬──────┘                             │
-│                           │                                   │
-│         ┌─────────────────┼─────────────────┐                 │
-│         │                 │                 │                  │
-│  ┌──────▼──────┐  ┌──────▼──────┐  ┌──────▼──────┐          │
-│  │  Discovery  │  │  Election   │  │  Transport  │          │
-│  │  Service    │  │   Service   │  │   Service   │          │
-│  └─────────────┘  └─────────────┘  └─────────────┘          │
-│                                                              │
-│  ┌─────────────────────────────────────────────────────────┐ │
-│  │              Tailscale VPN (Network Layer)             │ │
-│  │         Auto-discovery • Encrypted • Mesh             │ │
-│  └─────────────────────────────────────────────────────────┘ │
-└─────────────────────────────────────────────────────────────┘
+┌─────────────────────────────────────────────────────────────────────────┐
+│                           dooz 云端服务器                               │
+│                                                                         │
+│  ┌─────────────────────────────────────────────────────────────────┐   │
+│  │                      API Server (FastAPI)                      │   │
+│  │  - OAuth2 认证                                                  │   │
+│  │  - 租户管理                                                    │   │
+│  │  - LLM 代理 (租户配置自己的 LLM Provider)                     │   │
+│  └─────────────────────────────────────────────────────────────────┘   │
+│                                                                         │
+│  ┌─────────────────────────────────────────────────────────────────┐   │
+│  │              FastDDS Gateway (per tenant)                       │   │
+│  │  - Topic: dooz/{tenant_id}/...                                │   │
+│  │  - WebSocket ↔ FastDDS 桥接                                   │   │
+│  └─────────────────────────────────────────────────────────────────┘   │
+└─────────────────────────────────────────────────────────────────────────┘
+                                    ▲
+                                    │
+                              WebSocket
+                                    │
+                                    ▼
+┌─────────────────────────────────────────────────────────────────────────┐
+│                    dooz Client (多语言)                                │
+│                                                                         │
+│  ┌─────────────────┐  ┌─────────────────┐  ┌─────────────────┐       │
+│  │   Python        │  │   Kotlin        │  │   Swift         │       │
+│  │   (MVP)         │  │   (Future)      │  │   (Future)      │       │
+│  └─────────────────┘  └─────────────────┘  └─────────────────┘       │
+└─────────────────────────────────────────────────────────────────────────┘
 ```
 
-### Components
+### 核心概念
 
-#### Core Framework (`core/`)
-- **dooz_ros2/** — ROS2 package containing core services
-  - `dooz_core/` — Main node orchestration
-  - `dooz_discovery/` — Device discovery service
-  - `dooz_election/` — Dynamic brain election service
-  - `dooz_transport/` — Message transport service
-- **dooz_protocol/** — Protocol definitions (msg/srv/action)
+| 概念 | 说明 |
+|------|------|
+| **租户 (Tenant)** | 独立的逻辑单元，有自己的 LLM 配置和设备列表 |
+| **原生智能体 (Native Agent)** | 每个租户的主要协调者，负责任务拆解和调度 |
+| **设备智能体** | 接入的终端设备，具备不同能力和技能 |
+| **LLM 代理** | Server 代理 LLM 请求，组装 Profile + Memory + Soul 作为 Context |
 
-#### Client SDKs (`clients/`)
-- **android/** — Kotlin SDK for Android
-- **macos/** — Swift SDK for macOS/iOS
-- **linux/** — C++ SDK (planned)
+### 消息流程
+
+```
+用户 (任意设备)
+    │
+    ▼
+Pub: task/request (到租户的 Topic)
+    │
+    ▼
+Native Agent (收到请求)
+    │
+    ├── 调用 LLM 分析任务
+    │
+    ▼
+Pub: task/dispatch (分发子任务到各设备)
+    │
+    ▼
+各设备执行 skill → 返回 task/response
+    │
+    ▼
+Native Agent 汇总 → Pub: task/notify (通知用户)
+```
 
 ---
 
-## Technology Stack
+## MVP 范围
 
-| Layer | Technology | Version |
-|-------|------------|---------|
-| **Protocol** | ROS2 | Jazzy Jalisco / Humble |
-| **Network** | Tailscale | Latest |
-| **Language (Core)** | C++ / Rust | C++17 / Rust 1.75+ |
-| **Language (Android)** | Kotlin | 1.9.x |
-| **Language (macOS)** | Swift | 5.9+ |
-| **Build System** | Colcon + CMake | Latest |
+当前 MVP 聚焦于最小可用功能：
+
+### 已实现 (Phase 1)
+
+- [ ] Server 基础结构 (FastAPI)
+- [ ] OAuth2 认证
+- [ ] 租户管理 (创建、配置 LLM Provider)
+- [ ] FastDDS Gateway (MVP: 内存模式)
+- [ ] WebSocket 连接
+- [ ] LLM 代理接口
+- [ ] Python Client 基础
+- [ ] 设备 skills (开灯、播放视频等)
+
+### 待实现 (Future)
+
+- [ ] Chat Session 管理 + Memory 总结
+- [ ] Profile / Soul / Memory 完整 API
+- [ ] 任务超时重派机制
+- [ ] 设备间复杂协作
+- [ ] Kotlin / Swift Client
+- [ ] 真实 FastDDS 集成
+- [ ] 持久化存储
 
 ---
 
-## Quick Start
+## 快速开始
 
-### Prerequisites
-
-- ROS2 installed (Jazzy Jalisco or Humble Hawksbill recommended)
-- Tailscale account
-- For development: Ubuntu 22.04+ or macOS 13+
-
-### Installation
+### 1. 启动 Server
 
 ```bash
-# 1. Clone repository
-git clone https://github.com/your-org/dooz.git
 cd dooz
-
-# 2. Install ROS2 dependencies
-./scripts/install/install-ros2-dependencies.sh
-
-# 3. Install Tailscale
-./scripts/install/install-tailscale.sh
-
-# 4. Build ROS2 packages
-source /opt/ros/jazzy/setup.bash
-colcon build --packages-select dooz_protocol dooz_discovery dooz_election dooz_transport dooz_core
-
-# 5. Run demo
-ros2 launch dooz_core demo_launch.py
+pip install -r requirements.txt
+python -m server.main
 ```
 
-### Android Quick Start
+Server 会在 `http://localhost:8000` 启动。
 
-See [clients/android/README.md](clients/android/README.md)
+### 2. 创建租户
 
-### macOS Quick Start
+```bash
+curl -X POST http://localhost:8000/tenant/create \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "我的家庭",
+    "llm_url": "https://api.openai.com/v1/chat/completions",
+    "llm_api_key": "sk-xxx",
+    "llm_model": "gpt-4"
+  }'
+```
 
-See [clients/macos/README.md](clients/macos/README.md)
+返回:
+```json
+{
+  "tenant_id": "tenant-xxx",
+  "name": "我的家庭",
+  ...
+}
+```
 
----
+### 3. 启动 Client
 
-## Documentation
+编辑 `client/python/config/devices/computer.yaml`:
 
-| Guide | Description |
-|-------|-------------|
-| [docs/dev/](./docs/dev/) | Development documentation (architecture, design) |
-| [docs/user/](./docs/user/) | User documentation (Quick Start, usage) |
-| [docs/contributor/](./docs/contributor/) | Contributor guidelines |
+```yaml
+device:
+  id: "computer-001"
+  name: "客厅电脑"
+  wisdom: 90
+  output: true
+  llm_enabled: true
+  skills:
+    - name: "display_video"
+    - name: "screen_display"
 
----
+server:
+  url: "http://localhost:8000"
+  tenant_id: "tenant-xxx"
+  auth:
+    client_id: "xxx"
+    client_secret: "xxx"
+```
 
-## MVP Roadmap
-
-### Phase 1: Core Infrastructure (Current)
-- [x] Project structure established
-- [ ] ROS2 core framework
-- [ ] Device discovery service
-- [ ] Dynamic brain election service
-- [ ] Android client SDK
-- [ ] macOS client SDK
-
-### Phase 2: Production Ready
-- [ ] Full protocol implementation
-- [ ] Memory system for sub-agents
-- [ ] Skill management system
-- [ ] Cross-platform testing
-
-### Phase 3: Ecosystem Expansion
-- [ ] Linux client (C++)
-- [ ] Hardware module firmware
-- [ ] IoT device integration
-- [ ] Cloud backup brain
-
----
-
-## Why dooz?
-
-### Current Pain Points
-
-| Problem | dooz Solution |
-|---------|----------------|
-| **Sensors only execute, no feedback** | Every device observes and reports results |
-| **Complex protocol integration** | ROS2-based standardized protocol |
-| **Limited edge compute** | Brain node offloads heavy AI processing |
-| **Centralized polling inefficiency** | Direct device-to-device communication |
-
-### Comparison with Existing Solutions
-
-| Feature | dooz | OpenCV/OpenCLAW | Traditional IoT |
-|---------|------|-----------------|------------------|
-| Centralized Control | ❌ Decentralized | Partial | ✅ |
-| Dynamic Brain Election | ✅ | ❌ | ❌ |
-| Direct Device Communication | ✅ | ❌ | ❌ |
-| ROS2-Based | ✅ | ❌ | ❌ |
-| Zero-Config Discovery | ✅ (Tailscale) | ❌ | Partial |
+运行:
+```bash
+python -m client.python.main --config config/devices/computer.yaml
+```
 
 ---
 
-## Contributing
+## 文件结构
 
-We welcome contributions! Please see [docs/contributor/CONTRIBUTING.md](docs/contributor/CONTRIBUTING.md) for details.
+```
+dooz/
+├── server/                    # 服务器端
+│   ├── main.py               # FastAPI 入口
+│   ├── api/                  # API 路由
+│   ├── core/                 # 核心类型
+│   ├── tenant/               # 租户管理
+│   ├── llm/                  # LLM 网关
+│   └── transport/            # FastDDS Gateway
+│
+├── client/                   # 客户端
+│   ├── python/              # Python Client (MVP)
+│   │   ├── core/           # 核心模块
+│   │   ├── skills/         # 设备技能
+│   │   └── config/         # 配置文件
+│   ├── kotlin/              # Kotlin Client (Future)
+│   └── swift/              # Swift Client (Future)
+│
+└── docs/                    # 文档
+    └── superpowers/
+        └── specs/          # 设计文档
+```
 
-### Development Workflow
+---
 
-1. Fork the repository
-2. Create a feature branch
-3. Make your changes
-4. Run tests and ensure code quality
-5. Submit a pull request
+## 文档
+
+| 文档 | 说明 |
+|------|------|
+| [设计文档](docs/superpowers/specs/2026-03-14-dooz-architecture-design.md) | 完整架构设计 |
+| [实现计划](docs/superpowers/plans/2026-03-14-dooz-mvp-implementation-plan.md) | MVP 实现计划 |
+
+---
+
+## 技术栈
+
+| 组件 | 技术 |
+|------|------|
+| Server | FastAPI, Python 3.10+ |
+| Transport | FastDDS (MVP: 内存模式) |
+| Auth | OAuth2 (JWT) |
+| Client | Python (MVP), Kotlin/Swift (Future) |
 
 ---
 
 ## License
 
-Apache License 2.0 — see [LICENSE](LICENSE) for details.
-
----
-
-## Contact
-
-- Website: [dooz.ai](https://dooz.ai) (coming soon)
-- Issues: [GitHub Issues](https://github.com/your-org/dooz/issues)
-- Discussion: [GitHub Discussions](https://github.com/your-org/dooz/discussions)
-
----
-
-**dooz — Let every device become a true sub-agent, making AI truly "for people, by people, and understanding people."**
+Apache License 2.0 - see [LICENSE](LICENSE)
