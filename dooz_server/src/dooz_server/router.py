@@ -12,11 +12,6 @@ from .message_queue import MessageQueue
 from .schemas import ClientListResponse, MessageRequest, MessageResponse
 from .heartbeat import HeartbeatMonitor
 
-# Configure logging
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
-)
 logger = logging.getLogger("dooz_server")
 
 router = APIRouter()

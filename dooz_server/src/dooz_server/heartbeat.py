@@ -4,11 +4,6 @@ import time
 import logging
 from typing import Dict, Optional, Callable, Awaitable
 
-# Configure logging
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
-)
 logger = logging.getLogger("dooz_server.heartbeat")
 
 

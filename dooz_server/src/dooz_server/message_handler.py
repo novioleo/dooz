@@ -6,11 +6,6 @@ from pubsub import pub
 from .client_manager import ClientManager
 from .message_queue import MessageQueue
 
-# Configure logging
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
-)
 logger = logging.getLogger("dooz_server.message_handler")
 
 

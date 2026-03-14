@@ -5,11 +5,6 @@ from datetime import datetime, timezone
 from typing import Optional, Any
 from .schemas import ClientInfo
 
-# Configure logging
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
-)
 logger = logging.getLogger("dooz_server.client_manager")
 
 
