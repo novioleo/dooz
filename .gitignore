@@ -7,3 +7,11 @@
 .DS_Store
 # env
 .env
+
+# temp files
+.tmp/
+temp.txt
+
+# git worktrees
+.worktrees/
+worktrees/
