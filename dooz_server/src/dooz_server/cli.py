@@ -3,13 +3,14 @@ Main CLI entry point for dooz-server.
 Provides commands to start the server and initialize work directories.
 """
 
-import argparse
 import json
 import logging
 import os
 import sys
 from pathlib import Path
 from typing import TYPE_CHECKING
+
+import click
 
 # Configure logging at the root level
 logging.basicConfig(
@@ -91,46 +92,59 @@ Always respond in a helpful and clear manner.
 """
 
 
-def cmd_init(args):
+@click.group()
+def cli():
+    """Dooz Server - WebSocket message relay server with AI agent support."""
+    pass
+
+
+@cli.command()
+@click.argument("work_dir", default=".", type=click.Path())
+@click.option("--agent-name", help="Agent name (default: Dooz Assistant)")
+@click.option("--agent-device-id", help="Agent device ID (default: dooz-agent)")
+@click.option("--llm-provider", type=click.Choice(["openai", "anthropic"]), help="LLM provider (default: openai)")
+@click.option("--llm-model", help="LLM model name")
+@click.option("--llm-api-key", help="LLM API key (or use ${ENV_VAR} format)")
+@click.option("--force", "-f", is_flag=True, help="Force overwrite existing files")
+def init(work_dir, agent_name, agent_device_id, llm_provider, llm_model, llm_api_key, force):
     """Initialize a work directory with config and prompts."""
-    work_dir = args.work_dir
     work_path = Path(work_dir)
     
     # Create work directory if not exists
     work_path.mkdir(parents=True, exist_ok=True)
-    print(f"Work directory: {work_path.absolute()}")
+    click.echo(f"Work directory: {work_path.absolute()}")
     
     # Build config based on arguments
     config = DEFAULT_CONFIG.copy()
     
-    if args.agent_name:
-        config["agent"]["name"] = args.agent_name
-    if args.agent_device_id:
-        config["agent"]["device_id"] = args.agent_device_id
+    if agent_name:
+        config["agent"]["name"] = agent_name
+    if agent_device_id:
+        config["agent"]["device_id"] = agent_device_id
     
     # Handle LLM settings
-    if args.llm_provider:
-        config["llm"]["provider"] = args.llm_provider
-        if not args.llm_api_key:
-            config["llm"]["api_key"] = "${ANTHROPIC_API_KEY}" if args.llm_provider == "anthropic" else "${OPENAI_API_KEY}"
-    if args.llm_model:
-        config["llm"]["model"] = args.llm_model
-    if args.llm_api_key:
-        config["llm"]["api_key"] = args.llm_api_key
+    if llm_provider:
+        config["llm"]["provider"] = llm_provider
+        if not llm_api_key:
+            config["llm"]["api_key"] = "${ANTHROPIC_API_KEY}" if llm_provider == "anthropic" else "${OPENAI_API_KEY}"
+    if llm_model:
+        config["llm"]["model"] = llm_model
+    if llm_api_key:
+        config["llm"]["api_key"] = llm_api_key
     
     # Create config.json
     config_path = work_path / "config.json"
-    if config_path.exists() and not args.force:
-        print(f"Warning: {config_path} already exists. Use --force to overwrite.")
+    if config_path.exists() and not force:
+        click.echo(f"Warning: {config_path} already exists. Use --force to overwrite.")
     else:
         with open(config_path, "w") as f:
             json.dump(config, f, indent=2)
-        print(f"Created config.json")
+        click.echo(f"Created config.json")
     
     # Create prompts directory
     prompts_dir = work_path / "prompts"
-    if prompts_dir.exists() and not args.force:
-        print(f"Warning: {prompts_dir} already exists. Skipping prompts.")
+    if prompts_dir.exists() and not force:
+        click.echo(f"Warning: {prompts_dir} already exists. Skipping prompts.")
     else:
         prompts_dir.mkdir(parents=True, exist_ok=True)
         
@@ -138,7 +152,7 @@ def cmd_init(args):
         system_file = prompts_dir / "00_system_role.txt"
         with open(system_file, "w") as f:
             f.write(DEFAULT_SYSTEM_PROMPT)
-        print(f"Created {system_file}")
+        click.echo(f"Created {system_file}")
         
         # Create context placeholder files
         context_files = [
@@ -150,29 +164,34 @@ def cmd_init(args):
             filepath = prompts_dir / filename
             with open(filepath, "w") as f:
                 f.write(content)
-            print(f"Created {filepath}")
+            click.echo(f"Created {filepath}")
     
-    print(f"\n✅ Initialization complete!")
-    print(f"\nTo start the server:")
-    print(f"  dooz-server start --work-dir {work_path.absolute()}")
-    print(f"\nOr set environment variable:")
-    print(f"  DOOZ_WORK_DIRECTORY={work_path.absolute()} dooz-server start")
+    click.echo(f"\n✅ Initialization complete!")
+    click.echo(f"\nTo start the server:")
+    click.echo(f"  dooz-server start --work-dir {work_path.absolute()}")
+    click.echo(f"\nOr set environment variable:")
+    click.echo(f"  DOOZ_WORK_DIRECTORY={work_path.absolute()} dooz-server start")
 
 
-def cmd_start(args):
+@cli.command()
+@click.option("--work-dir", "-w", help="Work directory path (default: $DOOZ_WORK_DIRECTORY or current directory)")
+@click.option("--host", default="0.0.0.0", help="Server host (default: 0.0.0.0)")
+@click.option("--port", "-p", type=int, default=8000, help="Server port (default: 8000)")
+@click.option("--reload", "-r", is_flag=True, help="Enable auto-reload")
+def start(work_dir, host, port, reload):
     """Start the dooz-server."""
     import uvicorn
     
     # Set work directory from args or environment
-    work_dir = args.work_dir or os.environ.get("DOOZ_WORK_DIRECTORY", os.getcwd())
+    work_dir = work_dir or os.environ.get("DOOZ_WORK_DIRECTORY", os.getcwd())
     os.environ["DOOZ_WORK_DIRECTORY"] = work_dir
     
     # Create app with work directory
     app = create_app(work_dir)
     
-    print(f"Starting dooz-server...")
-    print(f"  Work directory: {work_dir}")
-    print(f"  Host: {args.host}:{args.port}")
+    click.echo(f"Starting dooz-server...")
+    click.echo(f"  Work directory: {work_dir}")
+    click.echo(f"  Host: {host}:{port}")
     
     # Check for agent config
     config_path = Path(work_dir) / "config.json"
@@ -180,106 +199,26 @@ def cmd_start(args):
         from dooz_server.agent import load_agent_config
         agent_config = load_agent_config(str(config_path))
         if agent_config and agent_config.agent.enabled:
-            print(f"  Agent: {agent_config.agent.name} ({agent_config.agent.device_id})")
+            click.echo(f"  Agent: {agent_config.agent.name} ({agent_config.agent.device_id})")
         else:
-            print(f"  Agent: disabled")
+            click.echo(f"  Agent: disabled")
     else:
-        print(f"  Config: not found (run 'dooz-server init' first)")
+        click.echo(f"  Config: not found (run 'dooz-server init' first)")
     
     uvicorn.run(
         app,
-        host=args.host,
-        port=args.port,
-        reload=args.reload,
+        host=host,
+        port=port,
+        reload=reload,
     )
 
 
 def main():
     """Main CLI entry point."""
-    parser = argparse.ArgumentParser(
-        description="Dooz Server - WebSocket message relay server with AI agent support",
-        prog="dooz-server",
-    )
-    
-    subparsers = parser.add_subparsers(dest="command", help="Available commands")
-    
-    # Init command
-    init_parser = subparsers.add_parser(
-        "init",
-        help="Initialize a work directory with config and prompts",
-    )
-    init_parser.add_argument(
-        "work_dir",
-        help="Work directory path to initialize",
-    )
-    init_parser.add_argument(
-        "--agent-name",
-        help="Agent name (default: Dooz Assistant)",
-    )
-    init_parser.add_argument(
-        "--agent-device-id",
-        help="Agent device ID (default: dooz-agent)",
-    )
-    init_parser.add_argument(
-        "--llm-provider",
-        choices=["openai", "anthropic"],
-        help="LLM provider (default: openai)",
-    )
-    init_parser.add_argument(
-        "--llm-model",
-        help="LLM model name",
-    )
-    init_parser.add_argument(
-        "--llm-api-key",
-        help="LLM API key (or use ${ENV_VAR} format)",
-    )
-    init_parser.add_argument(
-        "--force", "-f",
-        action="store_true",
-        help="Force overwrite existing files",
-    )
-    init_parser.set_defaults(func=cmd_init)
-    
-    # Start command
-    start_parser = subparsers.add_parser(
-        "start",
-        help="Start the dooz-server",
-    )
-    start_parser.add_argument(
-        "--work-dir", "-w",
-        help="Work directory path (default: $DOOZ_WORK_DIRECTORY or current directory)",
-    )
-    start_parser.add_argument(
-        "--host",
-        default="0.0.0.0",
-        help="Server host (default: 0.0.0.0)",
-    )
-    start_parser.add_argument(
-        "--port", "-p",
-        type=int,
-        default=8000,
-        help="Server port (default: 8000)",
-    )
-    start_parser.add_argument(
-        "--reload", "-r",
-        action="store_true",
-        help="Enable auto-reload",
-    )
-    start_parser.set_defaults(func=cmd_start)
-    
-    args = parser.parse_args()
-    
-    if args.command is None:
-        # Default to start command if no subcommand provided
-        args.command = "start"
-        args.func = cmd_start
-        # Set defaults for start command
-        args.work_dir = os.environ.get("DOOZ_WORK_DIRECTORY", os.getcwd())
-        args.host = "0.0.0.0"
-        args.port = 8000
-        args.reload = False
-    
-    args.func(args)
+    # Default to start command if no subcommand provided
+    if len(sys.argv) == 1:
+        sys.argv.append("start")
+    cli()
 
 
 if __name__ == "__main__":

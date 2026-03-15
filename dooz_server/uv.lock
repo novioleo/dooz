@@ -106,6 +106,7 @@ version = "0.1.0"
 source = { editable = "." }
 dependencies = [
     { name = "anthropic" },
+    { name = "click" },
     { name = "fastapi" },
     { name = "httpx" },
     { name = "openai" },
@@ -121,6 +122,7 @@ dependencies = [
 [package.metadata]
 requires-dist = [
     { name = "anthropic", specifier = ">=0.18.0" },
+    { name = "click", specifier = ">=8.1.0" },
     { name = "fastapi", specifier = ">=0.104.0" },
     { name = "httpx", specifier = ">=0.25.0" },
     { name = "openai", specifier = ">=1.0.0" },
