@@ -53,3 +53,44 @@ def test_is_connected(client_manager):
     mock_ws = object()
     client_manager.add_connection(client_id, mock_ws)
     assert client_manager.is_connected(client_id) is True
+
+
+def test_register_client_with_profile(client_manager):
+    """Test registering a client with profile information."""
+    from dooz_server.schemas import ClientProfile
+    
+    profile = ClientProfile(
+        name="TestAgent",
+        role="agent",
+        skills=[("echo", "Echo back input"), ("ls", "List directory")],
+        supports_input=True,
+        supports_output=False
+    )
+    client_id = client_manager.register_client(
+        client_id="agent-001",
+        name="TestAgent",
+        profile=profile,
+        connection_type="WebSocket"
+    )
+    
+    info = client_manager.get_client_info(client_id)
+    assert info is not None
+    assert info.profile is not None
+    assert info.profile.name == "TestAgent"
+    assert info.profile.role == "agent"
+    assert info.profile.skills == [("echo", "Echo back input"), ("ls", "List directory")]
+    assert info.profile.supports_input is True
+    assert info.profile.supports_output is False
+
+
+def test_register_client_without_profile(client_manager):
+    """Test that profile is optional when registering."""
+    client_id = client_manager.register_client(
+        client_id="user-001",
+        name="RegularUser",
+        connection_type="WebSocket"
+    )
+    
+    info = client_manager.get_client_info(client_id)
+    assert info is not None
+    assert info.profile is None

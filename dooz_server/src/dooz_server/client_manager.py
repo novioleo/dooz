@@ -3,7 +3,7 @@ import uuid
 import logging
 from datetime import datetime, timezone
 from typing import Optional, Any
-from .schemas import ClientInfo
+from .schemas import ClientInfo, ClientProfile
 
 logger = logging.getLogger("dooz_server.client_manager")
 
@@ -16,11 +16,12 @@ class ClientManager:
         self._connections: dict[str, Any] = {}  # client_id -> websocket
         logger.info("ClientManager initialized")
     
-    def register_client(self, client_id: Optional[str] = None, name: Optional[str] = None, connection_type: str = "WebSocket") -> str:
+    def register_client(self, client_id: Optional[str] = None, name: Optional[str] = None, profile: Optional[ClientProfile] = None, connection_type: str = "WebSocket") -> str:
         """Register a new client and return their client_id.
         
         If client_id is not provided, a new UUID will be generated.
         If name is not provided, it will be derived from client_id.
+        If profile is provided, it will be associated with the client.
         """
         # Generate client_id if not provided
         if client_id is None:
@@ -33,7 +34,8 @@ class ClientManager:
         client_info = ClientInfo(
             client_id=client_id,
             name=name,
-            connected_at=datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+            connected_at=datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
+            profile=profile
         )
         self._clients[client_id] = client_info
         logger.info(f"Client registered: {client_id} ({name}) via {connection_type}")
