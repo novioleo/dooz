@@ -1578,8 +1578,12 @@ def init_agent(work_directory: str, config: Optional[AgentConfig] = None):
 # dooz_server/src/dooz_server/router.py - Add agent handling in WebSocket endpoint
 
 # Add at top with other globals
+import os
+import json
+from pathlib import Path
 from .agent import Agent, load_agent_config
 from .agent.config import AgentConfig
+from fastapi import WebSocketDisconnect
 
 _agent_config: Optional[AgentConfig] = None
 _initialized_agent: Optional[Agent] = None
@@ -1601,30 +1605,115 @@ def init_agent_router(work_directory: str):
         logger.info(f"Agent router initialized: {_agent_config.agent.name}")
 
 
+# Save original websocket_endpoint logic as handle_client_websocket
+async def handle_client_websocket(websocket: WebSocket, device_id: str, profile: Optional[str] = None):
+    """Handle normal client WebSocket connection - extracted from original endpoint."""
+    ws_mgr = get_ws_manager()
+    await ws_mgr.connect(device_id, websocket)
+    
+    # Parse profile if provided
+    client_profile = None
+    profile_device_id = None
+    if profile:
+        try:
+            profile_data = json.loads(urllib.parse.unquote(profile))
+            client_profile = ClientProfile(**profile_data)
+            profile_device_id = client_profile.device_id
+        except Exception as e:
+            logger.warning(f"Failed to parse profile for {device_id}: {e}")
+    
+    final_device_id = profile_device_id if profile_device_id == device_id else device_id
+    
+    client_manager = get_client_manager()
+    existing_client = client_manager.get_client_info(final_device_id)
+    if not existing_client:
+        client_name = client_profile.name if client_profile else (final_device_id.split('-')[0].capitalize() if '-' in final_device_id else final_device_id)
+        registered_id = client_manager.register_client(final_device_id, client_name, client_profile, "WebSocket")
+        logger.info(f"WebSocket: Registered new client {registered_id}")
+    client_manager.add_connection(final_device_id, websocket)
+    
+    heartbeat_monitor = get_heartbeat_monitor()
+    await heartbeat_monitor.record_heartbeat(final_device_id)
+    
+    logger.info(f"WebSocket connection established: device_id={final_device_id}")
+    
+    message_handler = get_message_handler()
+    pending_count = message_handler.deliver_pending_messages(final_device_id)
+    if pending_count > 0:
+        await ws_mgr.send_personal_message({
+            "type": "pending_delivered",
+            "count": pending_count
+        }, final_device_id)
+    
+    try:
+        while True:
+            data = await websocket.receive_text()
+            message_data = json.loads(data)
+            
+            message_type = message_data.get("type")
+            
+            if message_type == "message":
+                message_handler = get_message_handler()
+                to_client = message_data.get("to_client_id")
+                content = message_data.get("content")
+                ttl_seconds = message_data.get("ttl_seconds", 3600)
+                
+                success, msg, msg_id = message_handler.send_message(
+                    from_client_id=final_device_id,
+                    to_client_id=to_client,
+                    content=content,
+                    ttl_seconds=ttl_seconds
+                )
+                
+                await ws_mgr.send_personal_message({
+                    "type": "message_sent",
+                    "success": success,
+                    "message": msg,
+                    "message_id": msg_id,
+                    "to_client_id": to_client
+                }, final_device_id)
+                
+                logger.info(f"WS message: {final_device_id} -> {to_client}: {content[:30]}...")
+            
+            elif message_type == "ping":
+                await heartbeat_monitor.record_heartbeat(final_device_id)
+                await ws_mgr.send_personal_message({"type": "pong"}, final_device_id)
+            
+            elif message_type == "heartbeat":
+                await heartbeat_monitor.record_heartbeat(final_device_id)
+                await ws_mgr.send_personal_message({
+                    "type": "heartbeat_ack",
+                    "server_time": asyncio.get_event_loop().time()
+                }, final_device_id)
+                
+    except WebSocketDisconnect:
+        ws_mgr.disconnect(final_device_id)
+        heartbeat_monitor.remove_client(final_device_id)
+        client_manager.remove_connection(final_device_id)
+        logger.info(f"WebSocket disconnected: device_id={final_device_id}")
+
+
 # Modify the websocket_endpoint to check for agent
 @router.websocket("/ws/{device_id}")
 async def websocket_endpoint(websocket: WebSocket, device_id: str, profile: Optional[str] = None):
-    # ... existing code ...
-    
     agent_config = get_agent_config()
     
     # Check if this is a message TO the agent
     if agent_config and agent_config.agent.enabled and device_id == agent_config.agent.device_id:
         # Handle as agent message
-        await handle_agent_websocket(websocket, final_device_id, profile)
+        await handle_agent_websocket(websocket, device_id, profile)
     else:
         # Normal client handling
-        await handle_normal_websocket(websocket, device_id, profile)
+        await handle_client_websocket(websocket, device_id, profile)
 
 
-async def handle_agent_websocket(websocket: WebSocket, device_id: str, profile: Optional[str]):
+async def handle_agent_websocket(websocket: WebSocket, device_id: str, profile: Optional[str] = None):
     """Handle WebSocket connection to the agent."""
     global _initialized_agent
     
     await websocket.accept()
     logger.info(f"Agent WebSocket connected: {device_id}")
     
-    # Get or create agent instance
     agent = _initialized_agent
     if not agent:
         logger.error("Agent not initialized")
@@ -1666,13 +1755,6 @@ async def handle_agent_websocket(websocket: WebSocket, device_id: str, profile: 
                 
     except WebSocketDisconnect:
         logger.info(f"Agent WebSocket disconnected: {device_id}")
-
-
-async def handle_normal_websocket(websocket: WebSocket, device_id: str, profile: Optional[str]):
-    """Handle normal client WebSocket connection (existing logic)."""
-    # ... existing code from original websocket_endpoint ...
-    pass
-```
 
 - [ ] **Step 5: Modify __init__.py exports**
 
