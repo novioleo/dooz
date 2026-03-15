@@ -1,19 +1,24 @@
-# dooz_server/main.py
 """Main entry point for the WebSocket message server."""
 import logging
+import os
+import json
+from pathlib import Path
+from typing import Optional
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from dooz_server.router import router
+from dooz_server.router import router, init_agent_router
 
-# Configure logging at the root level
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
 )
 
-# Set levels for third-party loggers to reduce noise
 logging.getLogger("uvicorn.access").setLevel(logging.WARNING)
 logging.getLogger("uvicorn").setLevel(logging.INFO)
+
+logger = logging.getLogger("dooz_server")
+
+WORK_DIRECTORY = os.environ.get("DOOZ_WORK_DIRECTORY", os.getcwd())
 
 
 def create_app() -> FastAPI:
@@ -24,7 +29,6 @@ def create_app() -> FastAPI:
         version="0.1.0"
     )
     
-    # CORS middleware
     app.add_middleware(
         CORSMiddleware,
         allow_origins=["*"],
@@ -33,8 +37,9 @@ def create_app() -> FastAPI:
         allow_headers=["*"],
     )
     
-    # Include routers
     app.include_router(router)
+    
+    init_agent_router(WORK_DIRECTORY)
     
     return app
 
@@ -45,6 +50,20 @@ app = create_app()
 def main():
     """Run the server using uvicorn."""
     import uvicorn
+    
+    logger.info(f"Starting Dooz server with work directory: {WORK_DIRECTORY}")
+    
+    config_path = Path(WORK_DIRECTORY) / "config.json"
+    if config_path.exists():
+        from dooz_server.agent import load_agent_config
+        agent_config = load_agent_config(str(config_path))
+        if agent_config and agent_config.agent.enabled:
+            logger.info(f"Agent enabled: {agent_config.agent.name} ({agent_config.agent.device_id})")
+        else:
+            logger.info("Agent feature disabled in config")
+    else:
+        logger.info(f"No config.json found in {WORK_DIRECTORY}, agent disabled")
+    
     uvicorn.run(app, host="0.0.0.0", port=8000)
 
 

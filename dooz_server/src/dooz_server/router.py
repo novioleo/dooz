@@ -1,9 +1,9 @@
-# dooz_server/src/dooz_server/router.py
 """FastAPI router with WebSocket endpoint for message server."""
 import json
 import asyncio
 import logging
 import urllib.parse
+from pathlib import Path
 from fastapi import APIRouter, Depends, HTTPException, WebSocket, WebSocketDisconnect
 from typing import Annotated, Optional
 
@@ -12,15 +12,18 @@ from .message_handler import MessageHandler
 from .message_queue import MessageQueue
 from .schemas import ClientListResponse, ClientProfile, MessageRequest, MessageResponse
 from .heartbeat import HeartbeatMonitor
+from .agent import Agent, load_agent_config
+from .agent.config import AgentConfig
 
 logger = logging.getLogger("dooz_server")
 
 router = APIRouter()
 
-# Global singletons
 _client_manager: Optional[ClientManager] = None
 _message_handler: Optional[MessageHandler] = None
 _heartbeat_monitor: Optional[HeartbeatMonitor] = None
+_agent_config: Optional[AgentConfig] = None
+_initialized_agent: Optional[Agent] = None
 ws_manager = None
 
 
@@ -43,6 +46,26 @@ def get_heartbeat_monitor() -> HeartbeatMonitor:
     if _heartbeat_monitor is None:
         _heartbeat_monitor = HeartbeatMonitor(timeout_seconds=30)
     return _heartbeat_monitor
+
+
+def get_agent_config() -> Optional[AgentConfig]:
+    return _agent_config
+
+
+def get_initialized_agent() -> Optional[Agent]:
+    return _initialized_agent
+
+
+def init_agent_router(work_directory: str):
+    """Initialize agent router with work directory."""
+    global _agent_config, _initialized_agent
+    
+    config_path = Path(work_directory) / "config.json"
+    _agent_config = load_agent_config(str(config_path))
+    
+    if _agent_config and _agent_config.agent.enabled:
+        _initialized_agent = Agent(_agent_config, get_client_manager(), work_directory)
+        logger.info(f"Agent router initialized: {_agent_config.agent.name}")
 
 
 class ConnectionManager:
@@ -76,8 +99,6 @@ def get_ws_manager() -> ConnectionManager:
     return ws_manager
 
 
-# HTTP Endpoints
-
 @router.get("/health")
 async def health_check():
     """Health check endpoint."""
@@ -98,7 +119,6 @@ async def list_clients(
     """List all connected clients, optionally filtered by role."""
     clients = client_manager.get_all_clients()
     
-    # Filter by role if provided
     if role:
         clients = [
             c for c in clients 
@@ -125,7 +145,7 @@ async def get_client(
 @router.post("/message", response_model=MessageResponse)
 async def send_message(
     request: MessageRequest,
-    from_client_id: str,  # Would come from WebSocket auth in production
+    from_client_id: str,
     message_handler: Annotated[MessageHandler, Depends(get_message_handler)]
 ):
     """Send a message to another client."""
@@ -190,7 +210,19 @@ async def check_expired_messages(
     }
 
 
-# WebSocket Endpoint
+async def handle_agent_message(websocket: WebSocket, device_id: str, message_data: dict, agent: Agent):
+    """Handle incoming message routed to agent."""
+    content = message_data.get("content", "")
+    
+    response = await agent.process_message(device_id, content)
+    
+    ws_mgr = get_ws_manager()
+    await ws_mgr.send_personal_message({
+        "type": "agent_response",
+        "content": response,
+        "from_client_id": agent.config.agent.device_id
+    }, device_id)
+
 
 @router.websocket("/ws/{device_id}")
 async def websocket_endpoint(websocket: WebSocket, device_id: str, profile: Optional[str] = None):
@@ -198,7 +230,6 @@ async def websocket_endpoint(websocket: WebSocket, device_id: str, profile: Opti
     ws_mgr = get_ws_manager()
     await ws_mgr.connect(device_id, websocket)
     
-    # Parse profile if provided
     client_profile = None
     profile_device_id = None
     if profile:
@@ -209,27 +240,34 @@ async def websocket_endpoint(websocket: WebSocket, device_id: str, profile: Opti
         except Exception as e:
             logger.warning(f"Failed to parse profile for {device_id}: {e}")
     
-    # Use device_id from profile if it matches path, otherwise use path device_id
     final_device_id = profile_device_id if profile_device_id == device_id else device_id
     
-    # Register with client manager (auto-register if not exists)
     client_manager = get_client_manager()
     logger.info(f"WebSocket: Checking device {final_device_id}, existing: {client_manager.get_client_info(final_device_id)}")
     existing_client = client_manager.get_client_info(final_device_id)
     if not existing_client:
-        # Auto-register new client with name from profile
         client_name = client_profile.name if client_profile else (final_device_id.split('-')[0].capitalize() if '-' in final_device_id else final_device_id)
         registered_id = client_manager.register_client(final_device_id, client_name, client_profile, "WebSocket")
         logger.info(f"WebSocket: Registered new client {registered_id}, now exists: {client_manager.get_client_info(final_device_id)}")
     client_manager.add_connection(final_device_id, websocket)
     
-    # Record initial heartbeat
     heartbeat_monitor = get_heartbeat_monitor()
     await heartbeat_monitor.record_heartbeat(final_device_id)
     
     logger.info(f"WebSocket connection established: device_id={final_device_id}")
     
-    # Deliver any pending offline messages
+    agent_config = get_agent_config()
+    initialized_agent = get_initialized_agent()
+    is_agent_connection = agent_config and agent_config.agent.enabled and agent_config.agent.device_id == final_device_id
+    
+    if is_agent_connection:
+        logger.info(f"Agent connection established: {agent_config.agent.name} ({final_device_id})")
+        await ws_mgr.send_personal_message({
+            "type": "agent_connected",
+            "agent_name": agent_config.agent.name,
+            "device_id": final_device_id
+        }, final_device_id)
+    
     message_handler = get_message_handler()
     pending_count = message_handler.deliver_pending_messages(final_device_id)
     if pending_count > 0:
@@ -246,21 +284,17 @@ async def websocket_endpoint(websocket: WebSocket, device_id: str, profile: Opti
             
             message_type = message_data.get("type")
             
-            if message_type == "message":
-                # Send message to another client
-                message_handler = get_message_handler()
+            if is_agent_connection and message_type == "message":
                 to_client = message_data.get("to_client_id")
                 content = message_data.get("content")
-                ttl_seconds = message_data.get("ttl_seconds", 3600)
                 
                 success, msg, msg_id = message_handler.send_message(
                     from_client_id=final_device_id,
                     to_client_id=to_client,
                     content=content,
-                    ttl_seconds=ttl_seconds
+                    ttl_seconds=message_data.get("ttl_seconds", 3600)
                 )
                 
-                # Send confirmation back to sender
                 await ws_mgr.send_personal_message({
                     "type": "message_sent",
                     "success": success,
@@ -269,10 +303,35 @@ async def websocket_endpoint(websocket: WebSocket, device_id: str, profile: Opti
                     "to_client_id": to_client
                 }, final_device_id)
                 
-                logger.info(f"WS message: {final_device_id} -> {to_client}: {content[:30]}...")
+                logger.info(f"Agent message: {final_device_id} -> {to_client}: {content[:30]}...")
+            
+            elif message_type == "message":
+                if initialized_agent and agent_config and message_data.get("to_client_id") == agent_config.agent.device_id:
+                    await handle_agent_message(websocket, final_device_id, message_data, initialized_agent)
+                else:
+                    message_handler = get_message_handler()
+                    to_client = message_data.get("to_client_id")
+                    content = message_data.get("content")
+                    ttl_seconds = message_data.get("ttl_seconds", 3600)
+                    
+                    success, msg, msg_id = message_handler.send_message(
+                        from_client_id=final_device_id,
+                        to_client_id=to_client,
+                        content=content,
+                        ttl_seconds=ttl_seconds
+                    )
+                    
+                    await ws_mgr.send_personal_message({
+                        "type": "message_sent",
+                        "success": success,
+                        "message": msg,
+                        "message_id": msg_id,
+                        "to_client_id": to_client
+                    }, final_device_id)
+                    
+                    logger.info(f"WS message: {final_device_id} -> {to_client}: {content[:30]}...")
             
             elif message_type == "ping":
-                # Record heartbeat and respond
                 await heartbeat_monitor.record_heartbeat(final_device_id)
                 await ws_mgr.send_personal_message({
                     "type": "pong"
@@ -280,7 +339,6 @@ async def websocket_endpoint(websocket: WebSocket, device_id: str, profile: Opti
                 logger.debug(f"Heartbeat ping from {final_device_id}")
             
             elif message_type == "heartbeat":
-                # Explicit heartbeat from client
                 await heartbeat_monitor.record_heartbeat(final_device_id)
                 await ws_mgr.send_personal_message({
                     "type": "heartbeat_ack",
