@@ -5,23 +5,29 @@ from dooz_server.schemas import ClientInfo, MessageRequest, MessageResponse, Cli
 
 
 def test_client_profile_required_fields():
-    """Test that name and role are required."""
+    """Test that device_id, name and role are required."""
+    # Missing device_id should fail
+    with pytest.raises(ValidationError):
+        ClientProfile(name="TestClient", role="agent")
+    
     # Missing name should fail
     with pytest.raises(ValidationError):
-        ClientProfile(role="agent")
+        ClientProfile(device_id="device-001", role="agent")
     
     # Missing role should fail
     with pytest.raises(ValidationError):
-        ClientProfile(name="TestClient")
-    # Both present should pass
-    profile = ClientProfile(name="TestClient", role="agent")
+        ClientProfile(device_id="device-001", name="TestClient")
+    
+    # All present should pass
+    profile = ClientProfile(device_id="device-001", name="TestClient", role="agent")
+    assert profile.device_id == "device-001"
     assert profile.name == "TestClient"
     assert profile.role == "agent"
 
 
 def test_client_profile_optional_fields():
     """Test optional fields have correct defaults."""
-    profile = ClientProfile(name="TestClient", role="agent")
+    profile = ClientProfile(device_id="device-001", name="TestClient", role="agent")
     assert profile.extra_info is None
     assert profile.skills == []
     assert profile.supports_input is False
@@ -32,6 +38,7 @@ def test_client_profile_all_fields():
     """Test creating profile with all fields."""
     # skills is list[tuple[str, str]] - (ability_name, ability_description)
     profile = ClientProfile(
+        device_id="device-001",
         name="TestClient",
         role="agent",
         extra_info="Custom info",
@@ -39,6 +46,7 @@ def test_client_profile_all_fields():
         supports_input=True,
         supports_output=True
     )
+    assert profile.device_id == "device-001"
     assert profile.name == "TestClient"
     assert profile.role == "agent"
     assert profile.extra_info == "Custom info"
@@ -51,10 +59,12 @@ def test_client_profile_extra_fields_ignored():
     """Test that extra fields are ignored (not strictly validated)."""
     # Extra fields should not raise validation error
     profile = ClientProfile(
+        device_id="device-001",
         name="TestClient",
         role="agent",
         unknown_field="should be ignored"
     )
+    assert profile.device_id == "device-001"
     assert profile.name == "TestClient"
     # The unknown_field should not be in the model
     assert not hasattr(profile, 'unknown_field')
@@ -110,7 +120,7 @@ def test_client_list_response():
 
 def test_client_info_with_profile():
     """Test that ClientInfo accepts profile field."""
-    profile = ClientProfile(name="TestClient", role="agent", supports_input=True)
+    profile = ClientProfile(device_id="device-001", name="TestClient", role="agent", supports_input=True)
     client = ClientInfo(
         client_id="test-123",
         name="TestUser",
@@ -118,6 +128,7 @@ def test_client_info_with_profile():
         profile=profile
     )
     assert client.client_id == "test-123"
+    assert client.profile.device_id == "device-001"
     assert client.profile.name == "TestClient"
     assert client.profile.role == "agent"
     assert client.profile.supports_input is True
@@ -136,36 +147,37 @@ def test_client_info_profile_optional():
 def test_client_profile_empty_role():
     """Test that empty role fails validation."""
     with pytest.raises(ValidationError):
-        ClientProfile(name="Test", role="")
+        ClientProfile(device_id="device-001", name="Test", role="")
 
 
 def test_client_profile_empty_name():
     """Test that empty name fails validation."""
     with pytest.raises(ValidationError):
-        ClientProfile(name="", role="agent")
+        ClientProfile(device_id="device-001", name="", role="agent")
 
 
 def test_client_profile_whitespace_name():
     """Test that whitespace-only name fails validation."""
     with pytest.raises(ValidationError):
-        ClientProfile(name="   ", role="agent")
+        ClientProfile(device_id="device-001", name="   ", role="agent")
 
 
 def test_client_profile_whitespace_role():
     """Test that whitespace-only role fails validation."""
     with pytest.raises(ValidationError):
-        ClientProfile(name="Test", role="   ")
+        ClientProfile(device_id="device-001", name="Test", role="   ")
 
 
 def test_client_profile_with_empty_skills():
     """Test that empty skills list is valid."""
-    profile = ClientProfile(name="Test", role="agent", skills=[])
+    profile = ClientProfile(device_id="device-001", name="Test", role="agent", skills=[])
     assert profile.skills == []
 
 
 def test_client_profile_with_skills():
     """Test skills list works correctly - list of tuples."""
     profile = ClientProfile(
+        device_id="device-001",
         name="Test",
         role="agent",
         skills=[("cmd1", "Command 1 description"), ("cmd2", "Command 2 description")]

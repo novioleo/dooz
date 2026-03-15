@@ -60,6 +60,7 @@ def test_register_client_with_profile(client_manager):
     from dooz_server.schemas import ClientProfile
     
     profile = ClientProfile(
+        device_id="device-001",
         name="TestAgent",
         role="agent",
         skills=[("echo", "Echo back input"), ("ls", "List directory")],
@@ -76,6 +77,7 @@ def test_register_client_with_profile(client_manager):
     info = client_manager.get_client_info(client_id)
     assert info is not None
     assert info.profile is not None
+    assert info.profile.device_id == "device-001"
     assert info.profile.name == "TestAgent"
     assert info.profile.role == "agent"
     assert info.profile.skills == [("echo", "Echo back input"), ("ls", "List directory")]

@@ -88,6 +88,7 @@ async def test_websocket_register_with_profile():
     import urllib.parse
     
     profile_data = {
+        "device_id": "device-001",
         "name": "TestAgent",
         "role": "agent",
         "skills": [["echo", "Echo back input"], ["ls", "List directory"]],
@@ -97,11 +98,12 @@ async def test_websocket_register_with_profile():
     profile_json = urllib.parse.quote(json.dumps(profile_data))
     
     with TestClient(app) as client:
-        with client.websocket_connect(f"/ws/test-client?profile={profile_json}") as ws:
+        with client.websocket_connect(f"/ws/device-001?profile={profile_json}") as ws:
             client_manager = get_client_manager()
-            info = client_manager.get_client_info("test-client")
+            info = client_manager.get_client_info("device-001")
             assert info is not None
             assert info.profile is not None
+            assert info.profile.device_id == "device-001"
             assert info.profile.name == "TestAgent"
             assert info.profile.role == "agent"
             assert info.profile.skills == [("echo", "Echo back input"), ("ls", "List directory")]

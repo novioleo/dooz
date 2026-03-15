@@ -183,47 +183,52 @@ async def check_expired_messages(
 
 # WebSocket Endpoint
 
-@router.websocket("/ws/{client_id}")
-async def websocket_endpoint(websocket: WebSocket, client_id: str, profile: Optional[str] = None):
+@router.websocket("/ws/{device_id}")
+async def websocket_endpoint(websocket: WebSocket, device_id: str, profile: Optional[str] = None):
     """WebSocket endpoint for client connections with heartbeat support and optional profile."""
     ws_mgr = get_ws_manager()
-    await ws_mgr.connect(client_id, websocket)
+    await ws_mgr.connect(device_id, websocket)
     
     # Parse profile if provided
     client_profile = None
+    profile_device_id = None
     if profile:
         try:
             profile_data = json.loads(urllib.parse.unquote(profile))
             client_profile = ClientProfile(**profile_data)
+            profile_device_id = client_profile.device_id
         except Exception as e:
-            logger.warning(f"Failed to parse profile for {client_id}: {e}")
+            logger.warning(f"Failed to parse profile for {device_id}: {e}")
+    
+    # Use device_id from profile if it matches path, otherwise use path device_id
+    final_device_id = profile_device_id if profile_device_id == device_id else device_id
     
     # Register with client manager (auto-register if not exists)
     client_manager = get_client_manager()
-    logger.info(f"WebSocket: Checking client {client_id}, existing: {client_manager.get_client_info(client_id)}")
-    existing_client = client_manager.get_client_info(client_id)
+    logger.info(f"WebSocket: Checking device {final_device_id}, existing: {client_manager.get_client_info(final_device_id)}")
+    existing_client = client_manager.get_client_info(final_device_id)
     if not existing_client:
-        # Auto-register new client with name from profile or derived from client_id
-        client_name = client_profile.name if client_profile else (client_id.split('-')[0].capitalize() if '-' in client_id else client_id)
-        registered_id = client_manager.register_client(client_id, client_name, client_profile, "WebSocket")
-        logger.info(f"WebSocket: Registered new client {registered_id}, now exists: {client_manager.get_client_info(client_id)}")
-    client_manager.add_connection(client_id, websocket)
+        # Auto-register new client with name from profile
+        client_name = client_profile.name if client_profile else (final_device_id.split('-')[0].capitalize() if '-' in final_device_id else final_device_id)
+        registered_id = client_manager.register_client(final_device_id, client_name, client_profile, "WebSocket")
+        logger.info(f"WebSocket: Registered new client {registered_id}, now exists: {client_manager.get_client_info(final_device_id)}")
+    client_manager.add_connection(final_device_id, websocket)
     
     # Record initial heartbeat
     heartbeat_monitor = get_heartbeat_monitor()
-    await heartbeat_monitor.record_heartbeat(client_id)
+    await heartbeat_monitor.record_heartbeat(final_device_id)
     
-    logger.info(f"WebSocket connection established: client_id={client_id}")
+    logger.info(f"WebSocket connection established: device_id={final_device_id}")
     
     # Deliver any pending offline messages
     message_handler = get_message_handler()
-    pending_count = message_handler.deliver_pending_messages(client_id)
+    pending_count = message_handler.deliver_pending_messages(final_device_id)
     if pending_count > 0:
         await ws_mgr.send_personal_message({
             "type": "pending_delivered",
             "count": pending_count
-        }, client_id)
-        logger.info(f"Delivered {pending_count} pending messages to {client_id}")
+        }, final_device_id)
+        logger.info(f"Delivered {pending_count} pending messages to {final_device_id}")
     
     try:
         while True:
@@ -240,7 +245,7 @@ async def websocket_endpoint(websocket: WebSocket, client_id: str, profile: Opti
                 ttl_seconds = message_data.get("ttl_seconds", 3600)
                 
                 success, msg, msg_id = message_handler.send_message(
-                    from_client_id=client_id,
+                    from_client_id=final_device_id,
                     to_client_id=to_client,
                     content=content,
                     ttl_seconds=ttl_seconds
@@ -253,29 +258,29 @@ async def websocket_endpoint(websocket: WebSocket, client_id: str, profile: Opti
                     "message": msg,
                     "message_id": msg_id,
                     "to_client_id": to_client
-                }, client_id)
+                }, final_device_id)
                 
-                logger.info(f"WS message: {client_id} -> {to_client}: {content[:30]}...")
+                logger.info(f"WS message: {final_device_id} -> {to_client}: {content[:30]}...")
             
             elif message_type == "ping":
                 # Record heartbeat and respond
-                await heartbeat_monitor.record_heartbeat(client_id)
+                await heartbeat_monitor.record_heartbeat(final_device_id)
                 await ws_mgr.send_personal_message({
                     "type": "pong"
-                }, client_id)
-                logger.debug(f"Heartbeat ping from {client_id}")
+                }, final_device_id)
+                logger.debug(f"Heartbeat ping from {final_device_id}")
             
             elif message_type == "heartbeat":
                 # Explicit heartbeat from client
-                await heartbeat_monitor.record_heartbeat(client_id)
+                await heartbeat_monitor.record_heartbeat(final_device_id)
                 await ws_mgr.send_personal_message({
                     "type": "heartbeat_ack",
                     "server_time": asyncio.get_event_loop().time()
-                }, client_id)
-                logger.debug(f"Heartbeat from {client_id}")
+                }, final_device_id)
+                logger.debug(f"Heartbeat from {final_device_id}")
                 
     except WebSocketDisconnect:
-        ws_mgr.disconnect(client_id)
-        heartbeat_monitor.remove_client(client_id)
-        client_manager.remove_connection(client_id)
-        logger.info(f"WebSocket disconnected: client_id={client_id}")
+        ws_mgr.disconnect(final_device_id)
+        heartbeat_monitor.remove_client(final_device_id)
+        client_manager.remove_connection(final_device_id)
+        logger.info(f"WebSocket disconnected: device_id={final_device_id}")

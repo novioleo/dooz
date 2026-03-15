@@ -36,34 +36,15 @@ def parse_args():
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
-  # Connect with default settings
-  python client_interactive.py
-
-  # Connect with custom name (client_id auto-generated)
-  python client_interactive.py --name Agent1
-
-  # Connect with custom client_id
-  python client_interactive.py --name Agent1 --client-id agent-001
-
   # Connect with profile from file
   python client_interactive.py --profile-file profile.json
 
   # Connect with inline profile JSON
-  python client_interactive.py --profile-json '{"name":"Agent1","role":"agent","skills":[["echo","Echo"]]}'
+  python client_interactive.py --profile-json '{"device_id":"device-001","name":"Agent1","role":"agent","skills":[["echo","Echo"]]}'
 
-  # Full example with all options
-  python client_interactive.py --name Agent1 --client-id agent-001 --server ws://localhost:8000 --profile-file profile.json
+  # Connect to custom server
+  python client_interactive.py --profile-file profile.json --server ws://localhost:9000
         """
-    )
-    parser.add_argument(
-        '--name', '-n',
-        default='TestUser',
-        help='Client display name (default: TestUser)'
-    )
-    parser.add_argument(
-        '--client-id', '-c',
-        default=None,
-        help='Client ID (default: auto-generated from name)'
     )
     parser.add_argument(
         '--server', '-s',
@@ -72,8 +53,8 @@ Examples:
     )
     parser.add_argument(
         '--profile-file', '-f',
-        default=None,
-        help='Path to JSON file containing profile'
+        required=True,
+        help='Path to JSON file containing profile (required)'
     )
     parser.add_argument(
         '--profile-json', '-j',
@@ -83,11 +64,7 @@ Examples:
     
     args = parser.parse_args()
     
-    # Auto-generate client_id if not provided
-    if args.client_id is None:
-        args.client_id = f"{args.name.lower()}-{abs(hash(args.name)) % 1000:03d}"
-    
-    # Load profile
+    # Load profile (required)
     profile = None
     if args.profile_file:
         profile = load_profile_from_file(args.profile_file)
@@ -95,7 +72,19 @@ Examples:
         try:
             profile = json.loads(args.profile_json)
         except json.JSONDecodeError as e:
-            print(f"Warning: Invalid profile JSON: {e}")
+            print(f"Error: Invalid profile JSON: {e}")
+            sys.exit(1)
+    
+    if not profile:
+        print("Error: Profile is required")
+        sys.exit(1)
+    
+    # Validate required fields in profile
+    required_fields = ['device_id', 'name', 'role']
+    missing = [f for f in required_fields if not profile.get(f)]
+    if missing:
+        print(f"Error: Profile missing required fields: {', '.join(missing)}")
+        sys.exit(1)
     
     return args, profile
 
@@ -103,9 +92,10 @@ Examples:
 class InteractiveClient:
     """Interactive WebSocket client with CLI."""
     
-    def __init__(self, client_id: str, name: str, server_url: str = "ws://localhost:8000", profile: Optional[dict] = None):
-        self.client_id = client_id
-        self.name = name
+    def __init__(self, server_url: str = "ws://localhost:8000", profile: Optional[dict] = None):
+        # Device ID and name come from profile
+        self.device_id = profile.get('device_id') if profile else None
+        self.name = profile.get('name') if profile else 'Unknown'
         self.server_url = server_url
         self.profile = profile
         self.websocket = None
@@ -136,7 +126,7 @@ class InteractiveClient:
         """Print client banner."""
         print(self.color('bold', '=' * 60))
         print(self.color('bold', f'  WebSocket Interactive Client'))
-        print(self.color('bold', f'  Client: {self.name} ({self.client_id})'))
+        print(self.color('bold', f'  Device: {self.name} ({self.device_id})'))
         print(self.color('bold', f'  Server: {self.server_url}'))
         print(self.color('bold', '=' * 60))
         print()
@@ -211,7 +201,7 @@ class InteractiveClient:
     async def connect(self):
         """Connect to WebSocket server."""
         import urllib.parse
-        uri = f"{self.server_url}/ws/{self.client_id}"
+        uri = f"{self.server_url}/ws/{self.device_id}"
         
         # Add profile to query params if provided
         if self.profile:
@@ -280,7 +270,7 @@ class InteractiveClient:
                     data = resp.json()
                     print(self.color('cyan', f"\n📋 Connected Clients ({data['total']}):"))
                     for c in data['clients']:
-                        is_me = self.color('yellow', ' (YOU)') if c['client_id'] == self.client_id else ''
+                        is_me = self.color('yellow', ' (YOU)') if c['client_id'] == self.device_id else ''
                         print(f"  • {self.color('bold', c['name'])}{is_me}")
                         print(f"    {self.color('dim', c['client_id'])}")
                     print()
@@ -311,7 +301,7 @@ class InteractiveClient:
         import httpx
         try:
             async with httpx.AsyncClient() as client:
-                resp = await client.get(f"http://localhost:8000/messages/pending/{self.client_id}")
+                resp = await client.get(f"http://localhost:8000/messages/pending/{self.device_id}")
                 if resp.status_code == 200:
                     data = resp.json()
                     print(self.color('cyan', f"\n📬 Pending Messages ({data['total']}):"))
@@ -439,8 +429,6 @@ async def main():
     args, profile = parse_args()
     
     client = InteractiveClient(
-        client_id=args.client_id,
-        name=args.name,
         server_url=args.server,
         profile=profile
     )

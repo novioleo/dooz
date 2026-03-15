@@ -7,6 +7,7 @@ class ClientProfile(BaseModel):
     """Profile information for a registered client."""
     model_config = ConfigDict(extra='ignore')
     
+    device_id: str = Field(..., min_length=1, description="Unique device identifier (permanent)")
     name: str = Field(..., min_length=1, description="Client display name")
     role: str = Field(..., min_length=1, description="Client role (e.g., agent, user, service)")
     extra_info: Optional[str] = Field(default=None, description="Custom extra information")
@@ -14,7 +15,7 @@ class ClientProfile(BaseModel):
     supports_input: bool = Field(default=False, description="Whether client supports input")
     supports_output: bool = Field(default=False, description="Whether client supports output")
 
-    @field_validator('name', 'role', mode='before')
+    @field_validator('device_id', 'name', 'role', mode='before')
     @classmethod
     def strip_whitespace(cls, v: str) -> str:
         if isinstance(v, str):
