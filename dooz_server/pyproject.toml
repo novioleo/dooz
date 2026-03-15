@@ -22,7 +22,7 @@ dependencies = [
 ]
 
 [project.scripts]
-dooz-server = "dooz_server:main"
+dooz-server = "dooz_server.cli:main"
 
 [build-system]
 requires = ["hatchling"]
