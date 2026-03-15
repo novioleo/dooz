@@ -4,11 +4,101 @@ Interactive test client for WebSocket message server.
 Provides a command-line interface for sending/receiving messages.
 """
 import asyncio
+import argparse
 import websockets
 import json
-import sys
 import os
+from pathlib import Path
 from typing import Optional
+
+
+def load_profile_from_file(profile_path: str) -> Optional[dict]:
+    """Load profile JSON from file."""
+    path = Path(profile_path)
+    if not path.exists():
+        print(f"Error: Profile file not found: {profile_path}")
+        return None
+    try:
+        with open(path, 'r') as f:
+            return json.load(f)
+    except json.JSONDecodeError as e:
+        print(f"Error: Invalid JSON in profile file: {e}")
+        return None
+    except Exception as e:
+        print(f"Error reading profile file: {e}")
+        return None
+
+
+def parse_args():
+    """Parse command line arguments."""
+    parser = argparse.ArgumentParser(
+        description="Interactive WebSocket client for dooz server",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+Examples:
+  # Connect with default settings
+  python client_interactive.py
+
+  # Connect with custom name (client_id auto-generated)
+  python client_interactive.py --name Agent1
+
+  # Connect with custom client_id
+  python client_interactive.py --name Agent1 --client-id agent-001
+
+  # Connect with profile from file
+  python client_interactive.py --profile-file profile.json
+
+  # Connect with inline profile JSON
+  python client_interactive.py --profile-json '{"name":"Agent1","role":"agent","skills":[["echo","Echo"]]}'
+
+  # Full example with all options
+  python client_interactive.py --name Agent1 --client-id agent-001 --server ws://localhost:8000 --profile-file profile.json
+        """
+    )
+    parser.add_argument(
+        '--name', '-n',
+        default='TestUser',
+        help='Client display name (default: TestUser)'
+    )
+    parser.add_argument(
+        '--client-id', '-c',
+        default=None,
+        help='Client ID (default: auto-generated from name)'
+    )
+    parser.add_argument(
+        '--server', '-s',
+        default='ws://localhost:8000',
+        help='WebSocket server URL (default: ws://localhost:8000)'
+    )
+    parser.add_argument(
+        '--profile-file', '-f',
+        default=None,
+        help='Path to JSON file containing profile'
+    )
+    parser.add_argument(
+        '--profile-json', '-j',
+        default=None,
+        help='Inline profile JSON string'
+    )
+    
+    args = parser.parse_args()
+    
+    # Auto-generate client_id if not provided
+    if args.client_id is None:
+        args.client_id = f"{args.name.lower()}-{abs(hash(args.name)) % 1000:03d}"
+    
+    # Load profile
+    profile = None
+    if args.profile_file:
+        profile = load_profile_from_file(args.profile_file)
+    elif args.profile_json:
+        try:
+            profile = json.loads(args.profile_json)
+        except json.JSONDecodeError as e:
+            print(f"Warning: Invalid profile JSON: {e}")
+    
+    return args, profile
+
 
 class InteractiveClient:
     """Interactive WebSocket client with CLI."""
@@ -346,31 +436,14 @@ class InteractiveClient:
 
 async def main():
     """Main entry point."""
-    # Default client info
-    client_id = "client-001"
-    name = "TestUser"
-    server_url = "ws://localhost:8000"
-    profile = None
+    args, profile = parse_args()
     
-    # Parse arguments
-    if len(sys.argv) > 1:
-        name = sys.argv[1]
-        client_id = f"{name.lower()}-{id(name) % 1000:03d}"
-    if len(sys.argv) > 2:
-        client_id = sys.argv[2]
-    if len(sys.argv) > 3:
-        server_url = sys.argv[3]
-    
-    # Parse profile from arguments (JSON string)
-    # Usage: python client_interactive.py <name> <client_id> <server_url> '<profile_json>'
-    # Example: python client_interactive.py Agent1 agent-001 ws://localhost:8000 '{"name":"Agent1","role":"agent","skills":[["echo","Echo back input"],["ls","List directory"]],"supports_input":true,"supports_output":true}'
-    if len(sys.argv) > 4:
-        try:
-            profile = json.loads(sys.argv[4])
-        except json.JSONDecodeError:
-            print(f"Warning: Invalid profile JSON, ignoring")
-    
-    client = InteractiveClient(client_id, name, server_url, profile)
+    client = InteractiveClient(
+        client_id=args.client_id,
+        name=args.name,
+        server_url=args.server,
+        profile=profile
+    )
     await client.run()
 
 
