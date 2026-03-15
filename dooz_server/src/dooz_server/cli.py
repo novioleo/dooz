@@ -9,6 +9,7 @@ import logging
 import os
 import sys
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 # Configure logging at the root level
 logging.basicConfig(
@@ -20,6 +21,9 @@ logging.getLogger("uvicorn.access").setLevel(logging.WARNING)
 logging.getLogger("uvicorn").setLevel(logging.INFO)
 
 logger = logging.getLogger("dooz_server")
+
+if TYPE_CHECKING:
+    from fastapi import FastAPI
 
 DEFAULT_WORK_DIRECTORY = os.environ.get("DOOZ_WORK_DIRECTORY", os.getcwd())
 
