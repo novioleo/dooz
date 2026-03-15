@@ -1,0 +1,9 @@
+{
+  "device_id": "device-charlie",
+  "name": "Charlie",
+  "role": "user",
+  "skills": [],
+  "supports_input": true,
+  "supports_output": true,
+  "extra_info": "Charlie - regular user"
+}

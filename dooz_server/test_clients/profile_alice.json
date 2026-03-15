@@ -1,0 +1,12 @@
+{
+  "device_id": "device-alice",
+  "name": "Alice",
+  "role": "agent",
+  "skills": [
+    ["echo", "Echo back the input"],
+    ["ls", "List directory contents"]
+  ],
+  "supports_input": true,
+  "supports_output": true,
+  "extra_info": "Alice - helper agent"
+}

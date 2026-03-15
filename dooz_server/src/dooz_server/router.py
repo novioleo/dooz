@@ -92,11 +92,20 @@ async def health_check():
 
 @router.get("/clients", response_model=ClientListResponse)
 async def list_clients(
-    client_manager: Annotated[ClientManager, Depends(get_client_manager)]
+    client_manager: Annotated[ClientManager, Depends(get_client_manager)],
+    role: Optional[str] = None,
 ):
-    """List all connected clients."""
+    """List all connected clients, optionally filtered by role."""
     clients = client_manager.get_all_clients()
-    logger.info(f"Client list requested: {len(clients)} clients")
+    
+    # Filter by role if provided
+    if role:
+        clients = [
+            c for c in clients 
+            if c.profile and c.profile.role.lower() == role.lower()
+        ]
+    
+    logger.info(f"Client list requested: {len(clients)} clients (role filter: {role})")
     return ClientListResponse(clients=clients, total=len(clients))
 
 
