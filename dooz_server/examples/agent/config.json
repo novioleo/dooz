@@ -1,0 +1,21 @@
+{
+  "agent": {
+    "enabled": true,
+    "device_id": "dooz-agent",
+    "name": "Dooz Assistant"
+  },
+  "llm": {
+    "provider": "openai",
+    "model": "gpt-4o",
+    "api_key": "${OPENAI_API_KEY}",
+    "temperature": 0.7,
+    "max_tokens": 4096,
+    "timeout_seconds": 30
+  },
+  "prompts": {
+    "directory": "prompts",
+    "system_pattern": "system_*.txt",
+    "context_pattern": "context_*.txt",
+    "user_pattern": "user_*.txt"
+  }
+}
