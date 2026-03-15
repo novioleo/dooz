@@ -5,9 +5,52 @@ Provides commands to start the server and initialize work directories.
 
 import argparse
 import json
+import logging
 import os
 import sys
 from pathlib import Path
+
+# Configure logging at the root level
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+)
+
+logging.getLogger("uvicorn.access").setLevel(logging.WARNING)
+logging.getLogger("uvicorn").setLevel(logging.INFO)
+
+logger = logging.getLogger("dooz_server")
+
+DEFAULT_WORK_DIRECTORY = os.environ.get("DOOZ_WORK_DIRECTORY", os.getcwd())
+
+
+def create_app(work_directory: str = None) -> "FastAPI":
+    """Create and configure the FastAPI application."""
+    from fastapi import FastAPI
+    from fastapi.middleware.cors import CORSMiddleware
+    from dooz_server.router import router, init_agent_router
+    
+    work_dir = work_directory or DEFAULT_WORK_DIRECTORY
+    
+    app = FastAPI(
+        title="Dooz WebSocket Server",
+        description="WebSocket message relay server for client-to-client communication",
+        version="0.1.0"
+    )
+    
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=["*"],
+        allow_credentials=True,
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
+    
+    app.include_router(router)
+    
+    init_agent_router(work_dir)
+    
+    return app
 
 
 # Default configuration
@@ -115,14 +158,13 @@ def cmd_init(args):
 def cmd_start(args):
     """Start the dooz-server."""
     import uvicorn
-    from dooz_server.main import create_app, WORK_DIRECTORY
     
     # Set work directory from args or environment
     work_dir = args.work_dir or os.environ.get("DOOZ_WORK_DIRECTORY", os.getcwd())
     os.environ["DOOZ_WORK_DIRECTORY"] = work_dir
     
-    # Re-create app with new work directory
-    app = create_app()
+    # Create app with work directory
+    app = create_app(work_dir)
     
     print(f"Starting dooz-server...")
     print(f"  Work directory: {work_dir}")
