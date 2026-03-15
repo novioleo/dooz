@@ -3,13 +3,14 @@
 import json
 import asyncio
 import logging
+import urllib.parse
 from fastapi import APIRouter, Depends, HTTPException, WebSocket, WebSocketDisconnect
 from typing import Annotated, Optional
 
 from .client_manager import ClientManager
 from .message_handler import MessageHandler
 from .message_queue import MessageQueue
-from .schemas import ClientListResponse, MessageRequest, MessageResponse
+from .schemas import ClientListResponse, ClientProfile, MessageRequest, MessageResponse
 from .heartbeat import HeartbeatMonitor
 
 logger = logging.getLogger("dooz_server")
@@ -183,19 +184,28 @@ async def check_expired_messages(
 # WebSocket Endpoint
 
 @router.websocket("/ws/{client_id}")
-async def websocket_endpoint(websocket: WebSocket, client_id: str):
-    """WebSocket endpoint for client connections with heartbeat support."""
+async def websocket_endpoint(websocket: WebSocket, client_id: str, profile: Optional[str] = None):
+    """WebSocket endpoint for client connections with heartbeat support and optional profile."""
     ws_mgr = get_ws_manager()
     await ws_mgr.connect(client_id, websocket)
+    
+    # Parse profile if provided
+    client_profile = None
+    if profile:
+        try:
+            profile_data = json.loads(urllib.parse.unquote(profile))
+            client_profile = ClientProfile(**profile_data)
+        except Exception as e:
+            logger.warning(f"Failed to parse profile for {client_id}: {e}")
     
     # Register with client manager (auto-register if not exists)
     client_manager = get_client_manager()
     logger.info(f"WebSocket: Checking client {client_id}, existing: {client_manager.get_client_info(client_id)}")
     existing_client = client_manager.get_client_info(client_id)
     if not existing_client:
-        # Auto-register new client with name derived from client_id
-        client_name = client_id.split('-')[0].capitalize() if '-' in client_id else client_id
-        registered_id = client_manager.register_client(client_id, client_name, "WebSocket")
+        # Auto-register new client with name from profile or derived from client_id
+        client_name = client_profile.name if client_profile else (client_id.split('-')[0].capitalize() if '-' in client_id else client_id)
+        registered_id = client_manager.register_client(client_id, client_name, client_profile, "WebSocket")
         logger.info(f"WebSocket: Registered new client {registered_id}, now exists: {client_manager.get_client_info(client_id)}")
     client_manager.add_connection(client_id, websocket)
     

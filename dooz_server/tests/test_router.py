@@ -72,3 +72,37 @@ def test_get_client(test_client, client_manager):
 def test_get_nonexistent_client(test_client):
     response = test_client.get("/clients/nonexistent-id")
     assert response.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_websocket_register_with_profile():
+    """Test WebSocket connection accepts profile in connection request."""
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+    from dooz_server.router import router, get_client_manager
+    
+    app = FastAPI()
+    app.include_router(router)
+    
+    import json
+    import urllib.parse
+    
+    profile_data = {
+        "name": "TestAgent",
+        "role": "agent",
+        "skills": [["echo", "Echo back input"], ["ls", "List directory"]],
+        "supports_input": True,
+        "supports_output": False
+    }
+    profile_json = urllib.parse.quote(json.dumps(profile_data))
+    
+    with TestClient(app) as client:
+        with client.websocket_connect(f"/ws/test-client?profile={profile_json}") as ws:
+            client_manager = get_client_manager()
+            info = client_manager.get_client_info("test-client")
+            assert info is not None
+            assert info.profile is not None
+            assert info.profile.name == "TestAgent"
+            assert info.profile.role == "agent"
+            assert info.profile.skills == [("echo", "Echo back input"), ("ls", "List directory")]
+            assert info.profile.supports_input is True
