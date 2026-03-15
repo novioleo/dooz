@@ -131,3 +131,43 @@ def test_client_info_profile_optional():
         connected_at="2024-01-01T00:00:00Z"
     )
     assert client.profile is None
+
+
+def test_client_profile_empty_role():
+    """Test that empty role fails validation."""
+    with pytest.raises(ValidationError):
+        ClientProfile(name="Test", role="")
+
+
+def test_client_profile_empty_name():
+    """Test that empty name fails validation."""
+    with pytest.raises(ValidationError):
+        ClientProfile(name="", role="agent")
+
+
+def test_client_profile_whitespace_name():
+    """Test that whitespace-only name fails validation."""
+    with pytest.raises(ValidationError):
+        ClientProfile(name="   ", role="agent")
+
+
+def test_client_profile_whitespace_role():
+    """Test that whitespace-only role fails validation."""
+    with pytest.raises(ValidationError):
+        ClientProfile(name="Test", role="   ")
+
+
+def test_client_profile_with_empty_skills():
+    """Test that empty skills list is valid."""
+    profile = ClientProfile(name="Test", role="agent", skills=[])
+    assert profile.skills == []
+
+
+def test_client_profile_with_skills():
+    """Test skills list works correctly - list of tuples."""
+    profile = ClientProfile(
+        name="Test",
+        role="agent",
+        skills=[("cmd1", "Command 1 description"), ("cmd2", "Command 2 description")]
+    )
+    assert profile.skills == [("cmd1", "Command 1 description"), ("cmd2", "Command 2 description")]

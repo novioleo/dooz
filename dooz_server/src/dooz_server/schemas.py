@@ -1,5 +1,4 @@
-# dooz_server/src/dooz_server/schemas.py
-from pydantic import BaseModel, Field, ConfigDict
+from pydantic import BaseModel, Field, ConfigDict, field_validator
 from typing import Optional
 from datetime import datetime
 
@@ -14,6 +13,13 @@ class ClientProfile(BaseModel):
     skills: list[tuple[str, str]] = Field(default_factory=list, description="List of (ability_name, ability_description) tuples")
     supports_input: bool = Field(default=False, description="Whether client supports input")
     supports_output: bool = Field(default=False, description="Whether client supports output")
+
+    @field_validator('name', 'role', mode='before')
+    @classmethod
+    def strip_whitespace(cls, v: str) -> str:
+        if isinstance(v, str):
+            v = v.strip()
+        return v
 
 
 class ClientInfo(BaseModel):
