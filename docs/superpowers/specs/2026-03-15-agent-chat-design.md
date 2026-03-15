@@ -62,11 +62,12 @@ The server reads configuration from a JSON config file in the work directory.
     "name": "Dooz Assistant"
   },
   "llm": {
-    "provider": "openai",  // or "anthropic"
+    "provider": "openai",
     "model": "gpt-4o",
-    "api_key": "${OPENAI_API_KEY}",  // or use env var
+    "api_key": "${OPENAI_API_KEY}",
     "temperature": 0.7,
-    "max_tokens": 4096
+    "max_tokens": 4096,
+    "timeout_seconds": 30
   },
   "prompts": {
     "directory": "prompts",
@@ -82,7 +83,7 @@ The server reads configuration from a JSON config file in the work directory.
 
 ### 2.2 Environment Variable Substitution
 
-Config values支持环境变量替换，格式: `${ENV_VAR_NAME}`
+Config values support environment variable substitution with format: `${ENV_VAR_NAME}`
 
 ---
 
@@ -117,7 +118,7 @@ Config values支持环境变量替换，格式: `${ENV_VAR_NAME}`
 
 Some context files are generated at runtime:
 - `context_agents.txt` - Current available sub-agents (from client registry)
-- `context_history.txt` - Recent conversation history (maintained in memory)
+- `context_history.txt` - Recent conversation history (maintained in memory, max 10 messages per user)
 
 ---
 
@@ -225,14 +226,28 @@ def register_agent_device(config: AgentConfig, client_manager: ClientManager):
 
 ### 5.2 Message Handling
 
-When a message is sent TO the agent device:
+When a message is sent TO the agent device, the router checks if the device_id matches the configured agent device_id:
 
 ```python
+# Global singleton for agent config (loaded at startup)
+_agent_config: Optional[AgentConfig] = None
+
+
+def get_agent_config() -> Optional[AgentConfig]:
+    return _agent_config
+
+
+def set_agent_config(config: AgentConfig):
+    global _agent_config
+    _agent_config = config
+
+
 @router.websocket("/ws/{device_id}")
 async def websocket_endpoint(websocket: WebSocket, device_id: str):
     # ... existing connection logic ...
     
-    if device_id == agent_config.device_id:
+    agent_config = get_agent_config()
+    if agent_config and agent_config.enabled and device_id == agent_config.device_id:
         # Route to agent handler
         await agent.handle_websocket(websocket, user_id)
     else:
@@ -241,6 +256,19 @@ async def websocket_endpoint(websocket: WebSocket, device_id: str):
 ```
 
 ### 5.3 Agent WebSocket Protocol
+
+**Status Enum:**
+
+```python
+from enum import Enum
+
+
+class AgentResponseStatus(str, Enum):
+    """Status of agent response."""
+    PROCESSING = "processing"
+    COMPLETED = "completed"
+    ERROR = "error"
+```
 
 **Incoming to Agent:**
 
@@ -259,7 +287,7 @@ async def websocket_endpoint(websocket: WebSocket, device_id: str):
   "type": "agent_response",
   "user_id": "user-123",
   "message": "I've decomposed your request and executing tasks...",
-  "status": "processing",  // or "completed", "error"
+  "status": "processing",
   "sub_tasks": [
     {
       "task_id": "1",
@@ -300,7 +328,50 @@ async def call_llm(
 
 ### 6.3 Response Parsing
 
-The LLM returns a JSON array of sub-tasks:
+The LLM returns a JSON array of sub-tasks. Response parsing includes validation:
+
+```python
+from pydantic import BaseModel, Field, field_validator
+from typing import Optional
+
+
+class SubTaskInput(BaseModel):
+    """Input schema for sub-task from LLM response."""
+    task_id: str
+    description: str
+    target_capability: Optional[str] = None
+    target_agent_id: Optional[str] = None
+    parameters: dict = Field(default_factory=dict)
+    depends_on: list[str] = Field(default_factory=list)
+
+
+class LLMResponse(BaseModel):
+    """Schema for parsed LLM response."""
+    tasks: list[SubTaskInput]
+    
+    @field_validator('tasks', mode='before')
+    @classmethod
+    def parse_tasks(cls, v):
+        """Parse and validate tasks from LLM response."""
+        if isinstance(v, str):
+            try:
+                import json
+                data = json.loads(v)
+                return data.get('tasks', [])
+            except (json.JSONDecodeError, AttributeError) as e:
+                raise ValueError(f"Invalid JSON response: {e}")
+        return v
+
+
+async def parse_llm_response(response: str) -> list[SubTaskInput]:
+    """Parse LLM response with validation and error handling."""
+    try:
+        data = LLMResponse.model_validate_json(response)
+        return data.tasks
+    except Exception as e:
+        logger.error(f"Failed to parse LLM response: {e}")
+        return []
+```
 
 ```json
 {
