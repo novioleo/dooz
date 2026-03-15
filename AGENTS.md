@@ -1,150 +1,380 @@
 # Agent Instructions
 
-This project uses **bd** (beads) for issue tracking. Run `bd onboard` to get started.
+This file provides guidelines for AI agents working in this codebase.
 
-## Quick Reference
+## Project Overview
+
+This is a WebSocket message relay server (`dooz-server`) with a Python client library. The server manages client connections, handles message routing, and supports offline message queuing.
+
+**Tech Stack:**
+- Server: FastAPI + uvicorn + websockets
+- Client: Python
+- Testing: pytest + pytest-asyncio
+- Python: 3.12+
+
+---
+
+## Issue Tracking (CRITICAL)
+
+This project uses **bd (beads)** for ALL issue tracking. Do NOT use markdown TODOs, task lists, or external trackers.
+
+### Quick Reference
 
 ```bash
-bd ready              # Find available work
-bd show <id>          # View issue details
-bd update <id> --claim  # Claim work atomically
-bd close <id>         # Complete work
-bd dolt push          # Push beads data to remote
+bd ready              # Find unblocked work available
+bd list --status=open # List all open issues
+bd show <id>         # View issue details
+bd create "Title" --type task --priority 2  # Create new issue
+bd update <id> --status=in_progress  # Claim work
+bd close <id>        # Complete work
+bd dolt push         # Push beads to remote (REQUIRED at session end)
 ```
+
+### Workflow Rules
+
+- **Always use beads** for task tracking (`bd create`, `bd ready`, `bd close`)
+- **Create issue BEFORE writing code** - check `bd ready` first
+- **Never use** `bd edit` - it opens $EDITOR which blocks agents
+- **Memory**: Use `bd remember "insight"` for persistent knowledge across sessions
+- **Priority format**: Use 0-4 (0=critical, 2=medium, 4=backlog), NOT "high/medium/low"
+
+### Session Close Protocol (MANDATORY)
+
+Before ending ANY session, you MUST complete ALL steps:
+
+1. **File issues** for remaining work
+2. **Run quality gates**: `uv run pytest`
+3. **Close completed work**: `bd close <id> --reason="Done"`
+4. **Push beads**: `bd dolt push`
+5. **Commit code**: `git add . && git commit -m "description"`
+6. **Push code**: `git push`
+7. **Verify**: `git status` must show "up to date with origin"
+
+**CRITICAL**: Work is NOT complete until `git push` succeeds. Never skip this.
+
+---
+
+## Build, Test & Development Commands
+
+### Server (dooz_server/)
+
+**Install dependencies:**
+```bash
+cd dooz_server
+uv sync  # Uses uv.lock for reproducible installs
+```
+
+**Run the server:**
+```bash
+cd dooz_server
+uv run uvicorn dooz_server.main:app --reload --port 8000
+# Or use the installed script:
+uv run dooz-server
+```
+
+**Run all tests:**
+```bash
+cd dooz_server
+uv run pytest
+```
+
+**Run a single test file:**
+```bash
+cd dooz_server
+uv run pytest tests/test_router.py
+```
+
+**Run a single test by name:**
+```bash
+cd dooz_server
+uv run pytest tests/test_router.py::test_health_check
+uv run pytest -k "test_send_message"
+```
+
+**Run tests with verbose output:**
+```bash
+cd dooz_server
+uv run pytest -v
+```
+
+**Run tests with coverage:**
+```bash
+cd dooz_server
+uv run pytest --cov=dooz_server --cov-report=term-missing
+```
+
+### Client Library (dooz_python_client/)
+
+**Install:**
+```bash
+cd client/dooz_python_client
+uv sync
+```
+
+---
+
+## Code Style Guidelines
+
+### General Principles
+
+- Write **clean, readable code** over clever code
+- Follow **PEP 8** conventions with the specifics below
+- Use **type hints** throughout (Python 3.12+)
+- Keep functions **small and focused** (single responsibility)
+- Add docstrings to public APIs
+
+### Imports
+
+**Organization (in order):**
+1. Standard library (`import json`, `import asyncio`)
+2. Third-party packages (`from fastapi import ...`, `import pytest`)
+3. Local application (`from .client_manager import ...`)
+
+```python
+# Good
+import json
+import asyncio
+import logging
+from typing import Annotated, Optional
+
+from fastapi import APIRouter, Depends, HTTPException, WebSocket
+from pydantic import BaseModel, Field
+
+from .client_manager import ClientManager
+from .schemas import MessageRequest
+```
+
+**Avoid wildcard imports:**
+```python
+# Bad
+from dooz_server import *
+
+# Good
+from dooz_server.router import router
+```
+
+### Naming Conventions
+
+| Element | Convention | Example |
+|---------|------------|---------|
+| Modules | snake_case | `client_manager.py` |
+| Classes | PascalCase | `class ClientManager:` |
+| Functions | snake_case | `def get_client_manager():` |
+| Variables | snake_case | `client_id = "abc"` |
+| Constants | UPPER_SNAKE | `MAX_CONNECTIONS = 100` |
+| Type aliases | PascalCase | `MessageHandler = ...` |
+
+```python
+# Classes
+class ConnectionManager:
+    pass
+
+# Functions and variables
+def get_client_manager() -> ClientManager:
+    client_id = "user-123"
+    return client_manager
+
+# Constants
+DEFAULT_TIMEOUT = 30
+MAX_MESSAGE_SIZE = 1024 * 1024
+```
+
+### Type Hints
+
+**Always use type hints for function signatures:**
+
+```python
+# Good
+def send_message(
+    from_client_id: str,
+    to_client_id: str,
+    content: str,
+    ttl_seconds: Optional[int] = 3600
+) -> tuple[bool, str, Optional[str]]:
+    ...
+
+def get_client_info(client_id: str) -> Optional[ClientInfo]:
+    ...
+
+# For complex types, use typing module
+from typing import Optional, Annotated
+from collections.abc import AsyncIterator
+```
+
+### Pydantic Models
+
+Use Pydantic v2 for data validation:
+
+```python
+from pydantic import BaseModel, Field, ConfigDict, field_validator
+
+class ClientProfile(BaseModel):
+    """Profile information for a registered client."""
+    model_config = ConfigDict(extra='ignore')  # Ignore unknown fields
+    
+    device_id: str = Field(..., min_length=1, description="Unique device identifier")
+    name: str = Field(..., min_length=1)
+    role: str
+    extra_info: Optional[str] = Field(default=None)
+    skills: list[tuple[str, str]] = Field(default_factory=list)
+
+    @field_validator('device_id', 'name', mode='before')
+    @classmethod
+    def strip_whitespace(cls, v: str) -> str:
+        if isinstance(v, str):
+            v = v.strip()
+        return v
+```
+
+### Error Handling
+
+**Use exceptions for unexpected errors, return values for expected failures:**
+
+```python
+# Good - return tuple for expected failure cases
+def send_message(from_client_id: str, to_client_id: str, content: str):
+    recipient = self.client_manager.get_client_info(to_client_id)
+    if not recipient:
+        return (False, "Recipient not found", None)  # Expected failure
+    # ... success case
+
+# Good - raise for unexpected errors
+async def connect(self, client_id: str, websocket: WebSocket):
+    try:
+        await websocket.accept()
+        self.active_connections[client_id] = websocket
+    except Exception as e:
+        logger.error(f"Failed to connect: {e}")
+        raise  # Unexpected error, let caller handle
+```
+
+**Log appropriately:**
+```python
+import logging
+logger = logging.getLogger("dooz_server")
+
+# Use appropriate log levels
+logger.debug(f"Processing message: {message_id}")
+logger.info(f"Client connected: {client_id}")
+logger.warning(f"Client not found: {client_id}")
+logger.error(f"Failed to send message: {e}")
+```
+
+### Async/Await
+
+**Use async for I/O operations:**
+
+```python
+# Good - async for WebSocket operations
+async def connect(self, client_id: str, websocket: WebSocket):
+    await websocket.accept()
+    self.active_connections[client_id] = websocket
+
+async def send_personal_message(self, message: dict, client_id: str):
+    if client_id in self.active_connections:
+        await self.active_connections[client_id].send_json(message)
+
+# Mark async test functions
+@pytest.mark.asyncio
+async def test_websocket_connection():
+    ...
+```
+
+### Testing Conventions
+
+**Use pytest fixtures:**
+
+```python
+@pytest.fixture
+def client_manager():
+    return ClientManager()
+
+@pytest.fixture
+def message_handler(client_manager):
+    return MessageHandler(client_manager, MessageQueue())
+
+def test_send_message(message_handler, client_manager):
+    sender_id = client_manager.register_client("sender")
+    recipient_id = client_manager.register_client("recipient")
+    
+    success, msg, msg_id = message_handler.send_message(
+        sender_id, recipient_id, "Hello!"
+    )
+    assert success is True
+```
+
+**Mock external dependencies:**
+
+```python
+from unittest.mock import Mock, AsyncMock
+
+def test_with_mock_websocket(message_handler, client_manager):
+    mock_ws = Mock()
+    mock_ws.send_json = AsyncMock()
+    client_manager.add_connection("recipient", mock_ws)
+    # ...
+```
+
+### FastAPI Patterns
+
+**Use dependency injection:**
+
+```python
+from fastapi import APIRouter, Depends
+from typing import Annotated
+
+router = APIRouter()
+
+def get_client_manager() -> ClientManager:
+    global _client_manager
+    if _client_manager is None:
+        _client_manager = ClientManager()
+    return _client_manager
+
+@router.get("/clients")
+async def list_clients(
+    client_manager: Annotated[ClientManager, Depends(get_client_manager)]
+):
+    return client_manager.get_all_clients()
+```
+
+---
 
 ## Non-Interactive Shell Commands
 
-**ALWAYS use non-interactive flags** with file operations to avoid hanging on confirmation prompts.
+**ALWAYS use non-interactive flags** with file operations:
 
-Shell commands like `cp`, `mv`, and `rm` may be aliased to include `-i` (interactive) mode on some systems, causing the agent to hang indefinitely waiting for y/n input.
-
-**Use these forms instead:**
 ```bash
 # Force overwrite without prompting
-cp -f source dest           # NOT: cp source dest
-mv -f source dest           # NOT: mv source dest
-rm -f file                  # NOT: rm file
+cp -f source dest
+mv -f source dest
+rm -f file
 
 # For recursive operations
-rm -rf directory            # NOT: rm -r directory
-cp -rf source dest          # NOT: cp -r source dest
+rm -rf directory
+cp -rf source dest
 ```
 
-**Other commands that may prompt:**
-- `scp` - use `-o BatchMode=yes` for non-interactive
-- `ssh` - use `-o BatchMode=yes` to fail instead of prompting
-- `apt-get` - use `-y` flag
-- `brew` - use `HOMEBREW_NO_AUTO_UPDATE=1` env var
+---
 
-<!-- BEGIN BEADS INTEGRATION -->
-## Issue Tracking with bd (beads)
+## File Structure
 
-**IMPORTANT**: This project uses **bd (beads)** for ALL issue tracking. Do NOT use markdown TODOs, task lists, or other tracking methods.
-
-### Why bd?
-
-- Dependency-aware: Track blockers and relationships between issues
-- Version-controlled: Built on Dolt with cell-level merge
-- Agent-optimized: JSON output, ready work detection, discovered-from links
-- Prevents duplicate tracking systems and confusion
-
-### Quick Start
-
-**Check for ready work:**
-
-```bash
-bd ready --json
 ```
-
-**Create new issues:**
-
-```bash
-bd create "Issue title" --description="Detailed context" -t bug|feature|task -p 0-4 --json
-bd create "Issue title" --description="What this issue is about" -p 1 --deps discovered-from:bd-123 --json
+dooz/
+├── dooz_server/              # Server package
+│   ├── src/dooz_server/      # Source code
+│   │   ├── __init__.py
+│   │   ├── main.py           # App entry point
+│   │   ├── router.py         # FastAPI routes
+│   │   ├── client_manager.py
+│   │   ├── message_handler.py
+│   │   ├── message_queue.py
+│   │   ├── heartbeat.py
+│   │   └── schemas.py       # Pydantic models
+│   ├── tests/                # Test suite
+│   └── pyproject.toml
+├── client/
+│   └── dooz_python_client/  # Python client library
+├── .opencode/                # OpenCode configuration
+└── AGENTS.md                # This file
 ```
-
-**Claim and update:**
-
-```bash
-bd update <id> --claim --json
-bd update bd-42 --priority 1 --json
-```
-
-**Complete work:**
-
-```bash
-bd close bd-42 --reason "Completed" --json
-```
-
-### Issue Types
-
-- `bug` - Something broken
-- `feature` - New functionality
-- `task` - Work item (tests, docs, refactoring)
-- `epic` - Large feature with subtasks
-- `chore` - Maintenance (dependencies, tooling)
-
-### Priorities
-
-- `0` - Critical (security, data loss, broken builds)
-- `1` - High (major features, important bugs)
-- `2` - Medium (default, nice-to-have)
-- `3` - Low (polish, optimization)
-- `4` - Backlog (future ideas)
-
-### Workflow for AI Agents
-
-1. **Check ready work**: `bd ready` shows unblocked issues
-2. **Claim your task atomically**: `bd update <id> --claim`
-3. **Work on it**: Implement, test, document
-4. **Discover new work?** Create linked issue:
-   - `bd create "Found bug" --description="Details about what was found" -p 1 --deps discovered-from:<parent-id>`
-5. **Complete**: `bd close <id> --reason "Done"`
-
-### Auto-Sync
-
-bd automatically syncs with git:
-
-- Exports to `.beads/issues.jsonl` after changes (5s debounce)
-- Imports from JSONL when newer (e.g., after `git pull`)
-- No manual export/import needed!
-
-### Important Rules
-
-- ✅ Use bd for ALL task tracking
-- ✅ Always use `--json` flag for programmatic use
-- ✅ Link discovered work with `discovered-from` dependencies
-- ✅ Check `bd ready` before asking "what should I work on?"
-- ❌ Do NOT create markdown TODO lists
-- ❌ Do NOT use external issue trackers
-- ❌ Do NOT duplicate tracking systems
-
-For more details, see README.md and docs/QUICKSTART.md.
-
-## Landing the Plane (Session Completion)
-
-**When ending a work session**, you MUST complete ALL steps below. Work is NOT complete until `git push` succeeds.
-
-**MANDATORY WORKFLOW:**
-
-1. **File issues for remaining work** - Create issues for anything that needs follow-up
-2. **Run quality gates** (if code changed) - Tests, linters, builds
-3. **Update issue status** - Close finished work, update in-progress items
-4. **PUSH TO REMOTE** - This is MANDATORY:
-   ```bash
-   git pull --rebase
-   bd dolt push
-   git push
-   git status  # MUST show "up to date with origin"
-   ```
-5. **Clean up** - Clear stashes, prune remote branches
-6. **Verify** - All changes committed AND pushed
-7. **Hand off** - Provide context for next session
-
-**CRITICAL RULES:**
-- Work is NOT complete until `git push` succeeds
-- NEVER stop before pushing - that leaves work stranded locally
-- NEVER say "ready to push when you are" - YOU must push
-- If push fails, resolve and retry until it succeeds
-
-<!-- END BEADS INTEGRATION -->
