@@ -106,3 +106,28 @@ def test_client_list_response():
     response = ClientListResponse(clients=clients, total=2)
     assert len(response.clients) == 2
     assert response.total == 2
+
+
+def test_client_info_with_profile():
+    """Test that ClientInfo accepts profile field."""
+    profile = ClientProfile(name="TestClient", role="agent", supports_input=True)
+    client = ClientInfo(
+        client_id="test-123",
+        name="TestUser",
+        connected_at="2024-01-01T00:00:00Z",
+        profile=profile
+    )
+    assert client.client_id == "test-123"
+    assert client.profile.name == "TestClient"
+    assert client.profile.role == "agent"
+    assert client.profile.supports_input is True
+
+
+def test_client_info_profile_optional():
+    """Test that profile is optional in ClientInfo."""
+    client = ClientInfo(
+        client_id="test-123",
+        name="TestUser",
+        connected_at="2024-01-01T00:00:00Z"
+    )
+    assert client.profile is None

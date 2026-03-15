@@ -21,6 +21,7 @@ class ClientInfo(BaseModel):
     client_id: str
     name: str
     connected_at: str
+    profile: Optional[ClientProfile] = Field(default=None, description="Client profile information")
 
 
 class MessageRequest(BaseModel):
