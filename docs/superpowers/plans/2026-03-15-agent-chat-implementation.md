@@ -450,15 +450,10 @@ class PromptLoader:
             file_name: Name of context file (e.g., "context_agents.txt")
             content: New content for the context
         """
+        # Clear all existing context and add fresh (simpler approach)
+        self._context_parts = []
+        
         priority = self._extract_priority(file_name)
-        
-        # Remove existing entry with same filename
-        self._context_parts = [
-            (p, c) for p, c in self._context_parts 
-            if not c  # This is simplified; in production would track filename
-        ]
-        
-        # Add new content
         self._context_parts.append((priority, content))
         self._context_parts.sort(key=lambda x: x[0])
         
@@ -985,7 +980,7 @@ import logging
 from typing import Optional
 from pydantic import BaseModel, Field
 
-from ..llm_client import LLMClient
+from .llm_client import LLMClient
 from ..schemas import ClientInfo
 
 logger = logging.getLogger("dooz_server.agent.task_router")
@@ -1160,6 +1155,8 @@ git commit -m "feat(agent): add task router for decomposition and routing"
 ```python
 # dooz_server/tests/agent/test_agent.py
 import pytest
+import tempfile
+from pathlib import Path
 from unittest.mock import Mock, AsyncMock, patch
 
 
@@ -1171,11 +1168,17 @@ class TestAgent:
         from dooz_server.agent.agent import Agent
         from dooz_server.agent.config import AgentConfig
         
-        config = AgentConfig()
-        agent = Agent(config, Mock())
-        
-        assert agent.config == config
-        assert agent.prompt_loader is not None
+        with tempfile.TemporaryDirectory() as tmpdir:
+            # Create minimal prompts dir
+            prompts_dir = Path(tmpdir) / "prompts"
+            prompts_dir.mkdir()
+            (prompts_dir / "00_system.txt").write_text("You are a test agent.")
+            
+            config = AgentConfig()
+            agent = Agent(config, Mock(), tmpdir)
+            
+            assert agent.config == config
+            assert agent.prompt_loader is not None
     
     @pytest.mark.asyncio
     async def test_handle_message_returns_response(self):
@@ -1183,20 +1186,26 @@ class TestAgent:
         from dooz_server.agent.agent import Agent
         from dooz_server.agent.config import AgentConfig, LLMConfig
         
-        config = AgentConfig(
-            llm=LLMConfig(provider="openai", api_key="test-key")
-        )
-        
-        agent = Agent(config, Mock())
-        
-        # Mock the LLM to return simple task decomposition
-        with patch.object(agent.task_router.llm_client, 'call', new_callable=AsyncMock) as mock_llm:
-            mock_llm.return_value = '{"tasks": []}'
+        with tempfile.TemporaryDirectory() as tmpdir:
+            # Create minimal prompts dir
+            prompts_dir = Path(tmpdir) / "prompts"
+            prompts_dir.mkdir()
+            (prompts_dir / "00_system.txt").write_text("You are a test agent.")
             
-            response = await agent.handle_message("user-1", "Turn on lights")
+            config = AgentConfig(
+                llm=LLMConfig(provider="openai", api_key="test-key")
+            )
             
-            assert response is not None
-            assert "message" in response or "tasks" in str(response)
+            agent = Agent(config, Mock(), tmpdir)
+            
+            # Mock the LLM to return simple task decomposition
+            with patch.object(agent.task_router.llm_client, 'call', new_callable=AsyncMock) as mock_llm:
+                mock_llm.return_value = '{"tasks": []}'
+                
+                response = await agent.handle_message("user-1", "Turn on lights")
+                
+                assert response is not None
+                assert "message" in response or "tasks" in str(response)
 ```
 
 - [ ] **Step 2: Run test to verify it fails**
@@ -1214,7 +1223,7 @@ from typing import Optional
 
 from ..config import AgentConfig
 from ..prompt_loader import PromptLoader
-from ..llm_client import LLMClient
+from .llm_client import LLMClient
 from ..conversation import ConversationManager
 from ..task_router import TaskRouter, SubTask
 
