@@ -1531,45 +1531,84 @@ Expected: FAIL or PASS depending on current state
 - [ ] **Step 3: Modify main.py to load config**
 
 ```python
-# dooz_server/main.py - Add after existing imports
+# dooz_server/main.py - Full modified version
+
+"""Main entry point for the WebSocket message server."""
+import logging
 import os
 import json
 from pathlib import Path
+from typing import Optional
+from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
+from dooz_server.router import router, init_agent_router
 from dooz_server.agent import Agent, load_agent_config
 from dooz_server.agent.config import AgentConfig
 
-# Global agent instance
-_agent: Optional[Agent] = None
+# Configure logging at the root level
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+)
+
+logging.getLogger("uvicorn.access").setLevel(logging.WARNING)
+logging.getLogger("uvicorn").setLevel(logging.INFO)
+
+# Work directory for config and prompts - can be set via env var or CLI
+WORK_DIRECTORY = os.environ.get("DOOZ_WORK_DIRECTORY", os.getcwd())
 
 
-def get_agent() -> Optional[Agent]:
-    """Get the global agent instance."""
-    return _agent
+def create_app() -> FastAPI:
+    """Create and configure the FastAPI application."""
+    app = FastAPI(
+        title="Dooz WebSocket Server",
+        description="WebSocket message relay server for client-to-client communication",
+        version="0.1.0"
+    )
+    
+    # CORS middleware
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=["*"],
+        allow_credentials=True,
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
+    
+    # Include routers
+    app.include_router(router)
+    
+    # Initialize agent router with work directory
+    init_agent_router(WORK_DIRECTORY)
+    
+    return app
 
 
-def init_agent(work_directory: str, config: Optional[AgentConfig] = None):
-    """Initialize the agent with work directory.
+app = create_app()
+
+
+def main():
+    """Run the server using uvicorn."""
+    import uvicorn
     
-    Args:
-        work_directory: Work directory for prompts and config.
-        config: Optional agent config. If not provided, loads from config.json.
-    """
-    global _agent
+    logger.info(f"Starting Dooz server with work directory: {WORK_DIRECTORY}")
     
-    if config is None:
-        config_path = Path(work_directory) / "config.json"
-        config = load_agent_config(str(config_path))
+    # Check for agent config
+    config_path = Path(WORK_DIRECTORY) / "config.json"
+    if config_path.exists():
+        agent_config = load_agent_config(str(config_path))
+        if agent_config and agent_config.agent.enabled:
+            logger.info(f"Agent enabled: {agent_config.agent.name} ({agent_config.agent.device_id})")
+        else:
+            logger.info("Agent feature disabled in config")
+    else:
+        logger.info(f"No config.json found in {WORK_DIRECTORY}, agent disabled")
     
-    if config is None or not config.agent.enabled:
-        logger.info("Agent feature is disabled")
-        return
-    
-    # Get client manager (will be set after app creation)
-    from dooz_server.router import get_client_manager
-    client_manager = get_client_manager()
-    
-    _agent = Agent(config, client_manager, work_directory)
-    logger.info(f"Agent initialized: {config.agent.name}")
+    uvicorn.run(app, host="0.0.0.0", port=8000)
+
+
+if __name__ == "__main__":
+    main()
 ```
 
 - [ ] **Step 4: Modify router.py for agent routing**
