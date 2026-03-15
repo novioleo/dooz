@@ -1,7 +1,19 @@
 # dooz_server/src/dooz_server/schemas.py
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ConfigDict
 from typing import Optional
 from datetime import datetime
+
+
+class ClientProfile(BaseModel):
+    """Profile information for a registered client."""
+    model_config = ConfigDict(extra='ignore')
+    
+    name: str = Field(..., min_length=1, description="Client display name")
+    role: str = Field(..., min_length=1, description="Client role (e.g., agent, user, service)")
+    extra_info: Optional[str] = Field(default=None, description="Custom extra information")
+    skills: list[tuple[str, str]] = Field(default_factory=list, description="List of (ability_name, ability_description) tuples")
+    supports_input: bool = Field(default=False, description="Whether client supports input")
+    supports_output: bool = Field(default=False, description="Whether client supports output")
 
 
 class ClientInfo(BaseModel):

@@ -1,7 +1,63 @@
 # tests/test_schemas.py
 import pytest
 from pydantic import ValidationError
-from dooz_server.schemas import ClientInfo, MessageRequest, MessageResponse, ClientListResponse
+from dooz_server.schemas import ClientInfo, MessageRequest, MessageResponse, ClientListResponse, ClientProfile
+
+
+def test_client_profile_required_fields():
+    """Test that name and role are required."""
+    # Missing name should fail
+    with pytest.raises(ValidationError):
+        ClientProfile(role="agent")
+    
+    # Missing role should fail
+    with pytest.raises(ValidationError):
+        ClientProfile(name="TestClient")
+    # Both present should pass
+    profile = ClientProfile(name="TestClient", role="agent")
+    assert profile.name == "TestClient"
+    assert profile.role == "agent"
+
+
+def test_client_profile_optional_fields():
+    """Test optional fields have correct defaults."""
+    profile = ClientProfile(name="TestClient", role="agent")
+    assert profile.extra_info is None
+    assert profile.skills == []
+    assert profile.supports_input is False
+    assert profile.supports_output is False
+
+
+def test_client_profile_all_fields():
+    """Test creating profile with all fields."""
+    # skills is list[tuple[str, str]] - (ability_name, ability_description)
+    profile = ClientProfile(
+        name="TestClient",
+        role="agent",
+        extra_info="Custom info",
+        skills=[("echo", "Echo back the input"), ("ls", "List directory contents")],
+        supports_input=True,
+        supports_output=True
+    )
+    assert profile.name == "TestClient"
+    assert profile.role == "agent"
+    assert profile.extra_info == "Custom info"
+    assert profile.skills == [("echo", "Echo back the input"), ("ls", "List directory contents")]
+    assert profile.supports_input is True
+    assert profile.supports_output is True
+
+
+def test_client_profile_extra_fields_ignored():
+    """Test that extra fields are ignored (not strictly validated)."""
+    # Extra fields should not raise validation error
+    profile = ClientProfile(
+        name="TestClient",
+        role="agent",
+        unknown_field="should be ignored"
+    )
+    assert profile.name == "TestClient"
+    # The unknown_field should not be in the model
+    assert not hasattr(profile, 'unknown_field')
 
 
 def test_client_info_creation():
