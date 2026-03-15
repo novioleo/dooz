@@ -8,14 +8,16 @@ import websockets
 import json
 import sys
 import os
+from typing import Optional
 
 class InteractiveClient:
     """Interactive WebSocket client with CLI."""
     
-    def __init__(self, client_id: str, name: str, server_url: str = "ws://localhost:8000"):
+    def __init__(self, client_id: str, name: str, server_url: str = "ws://localhost:8000", profile: Optional[dict] = None):
         self.client_id = client_id
         self.name = name
         self.server_url = server_url
+        self.profile = profile
         self.websocket = None
         self.running = False
         self.connected = False
@@ -118,11 +120,20 @@ class InteractiveClient:
     
     async def connect(self):
         """Connect to WebSocket server."""
+        import urllib.parse
         uri = f"{self.server_url}/ws/{self.client_id}"
+        
+        # Add profile to query params if provided
+        if self.profile:
+            profile_json = urllib.parse.quote(json.dumps(self.profile))
+            uri = f"{uri}?profile={profile_json}"
+        
         try:
             self.websocket = await websockets.connect(uri)
             self.connected = True
             print(self.color('green', f"✓ Connected to server as {self.name}"))
+            if self.profile:
+                print(self.color('cyan', f"  Profile: {self.profile.get('role', 'unknown')} role"))
             return True
         except Exception as e:
             print(self.color('red', f"✗ Connection failed: {e}"))
@@ -339,6 +350,7 @@ async def main():
     client_id = "client-001"
     name = "TestUser"
     server_url = "ws://localhost:8000"
+    profile = None
     
     # Parse arguments
     if len(sys.argv) > 1:
@@ -349,7 +361,16 @@ async def main():
     if len(sys.argv) > 3:
         server_url = sys.argv[3]
     
-    client = InteractiveClient(client_id, name, server_url)
+    # Parse profile from arguments (JSON string)
+    # Usage: python client_interactive.py <name> <client_id> <server_url> '<profile_json>'
+    # Example: python client_interactive.py Agent1 agent-001 ws://localhost:8000 '{"name":"Agent1","role":"agent","skills":[["echo","Echo back input"],["ls","List directory"]],"supports_input":true,"supports_output":true}'
+    if len(sys.argv) > 4:
+        try:
+            profile = json.loads(sys.argv[4])
+        except json.JSONDecodeError:
+            print(f"Warning: Invalid profile JSON, ignoring")
+    
+    client = InteractiveClient(client_id, name, server_url, profile)
     await client.run()
 
 
