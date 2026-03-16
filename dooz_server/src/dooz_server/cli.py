@@ -71,42 +71,43 @@ def create_app(work_directory: str = None) -> "FastAPI":
     
     app.include_router(router)
     
-    init_agent_router(work_dir)
-    
     return app
 
 
 # Default configuration
 DEFAULT_CONFIG = {
-    "agent": {
-        "enabled": True,
-        "device_id": "dooz-agent",
-        "name": "Dooz Assistant"
-    },
     "llm": {
-        "provider": "openai",
-        "model": "gpt-4o",
-        "api_key": "${OPENAI_API_KEY}",
-        "temperature": 0.7,
-        "max_tokens": 4096,
-        "timeout_seconds": 30
+        "provider": "anthropic",
+        "model": "claude-sonnet-4-20250514",
+        "api_key": "${ANTHROPIC_API_KEY}"
     },
     "prompts": {
-        "directory": "prompts",
-        "system_pattern": "system_*.txt",
-        "context_pattern": "context_*.txt",
-        "user_pattern": "user_*.txt"
+        "directory": "prompts"
     }
 }
 
-DEFAULT_SYSTEM_PROMPT = """You are Dooz Assistant, an AI agent that helps users interact with smart home devices and other connected services.
+DEFAULT_SYSTEM_PROMPT = """# System Role
+
+You are Dooz Assistant, an AI agent that helps users interact with smart home devices and other connected services through sub-agents.
 
 Your role is to:
-1. Understand user requests and break them into smaller tasks
-2. Route tasks to appropriate sub-agents or devices
-3. Aggregate results and present to the user
+1. Understand user requests through conversation
+2. Ask clarifying questions if needed
+3. When user intent is clear, create tasks for sub-agents
+4. Aggregate results and present to user
 
-Always respond in a helpful and clear manner.
+## Response Format
+
+When you need sub-agents to execute tasks, respond with:
+
+Direct response: [Your response to the user]
+
+OR
+
+Tasks:
+[
+  {"agent_id": "[agent-device-id]", "goal": "[what agent should do]"}
+]
 """
 
 
@@ -167,16 +168,16 @@ def init(work_dir, llm_provider, llm_model, llm_api_key, llm_base_url, force):
     else:
         prompts_dir.mkdir(parents=True, exist_ok=True)
         
-        # Create system prompt
-        system_file = prompts_dir / "00_system_role.txt"
+        # Create system prompt (.md)
+        system_file = prompts_dir / "00_system_role.md"
         with open(system_file, "w") as f:
             f.write(DEFAULT_SYSTEM_PROMPT)
         click.echo(f"Created {system_file}")
         
-        # Create context placeholder files
+        # Create context placeholder files (.md)
         context_files = [
-            ("10_context_agents.txt", "# Available sub-agents will be inserted here at runtime\n"),
-            ("20_context_history.txt", "# Conversation history will be inserted here at runtime\n"),
+            ("10_context_agents.md", "# Available sub-agents will be inserted here at runtime\n"),
+            ("20_context_history.md", "# Conversation history will be inserted here at runtime\n"),
         ]
         
         for filename, content in context_files:
@@ -211,18 +212,6 @@ def start(work_dir, host, port, reload):
     click.echo(f"Starting dooz-server...")
     click.echo(f"  Work directory: {work_dir}")
     click.echo(f"  Host: {host}:{port}")
-    
-    # Check for agent config
-    config_path = Path(work_dir) / "config.json"
-    if config_path.exists():
-        from dooz_server.agent import load_agent_config
-        agent_config = load_agent_config(str(config_path))
-        if agent_config and agent_config.agent.enabled:
-            click.echo(f"  Agent: {agent_config.agent.name} ({agent_config.agent.device_id})")
-        else:
-            click.echo(f"  Agent: disabled")
-    else:
-        click.echo(f"  Config: not found (run 'dooz-server init' first)")
     
     uvicorn.run(
         app,

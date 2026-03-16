@@ -3,7 +3,6 @@ import json
 import asyncio
 import logging
 import urllib.parse
-from pathlib import Path
 from fastapi import APIRouter, Depends, HTTPException, WebSocket, WebSocketDisconnect
 from typing import Annotated, Optional, Any
 
@@ -12,8 +11,6 @@ from .message_handler import MessageHandler
 from .message_queue import MessageQueue
 from .schemas import ClientListResponse, ClientProfile, MessageRequest, MessageResponse
 from .heartbeat import HeartbeatMonitor
-from .agent import Agent, load_agent_config
-from .agent.config import AgentConfig
 
 logger = logging.getLogger("dooz_server")
 
@@ -37,8 +34,6 @@ TASK_MESSAGE_TYPES = {
 _client_manager: Optional[ClientManager] = None
 _message_handler: Optional[MessageHandler] = None
 _heartbeat_monitor: Optional[HeartbeatMonitor] = None
-_agent_config: Optional[AgentConfig] = None
-_initialized_agent: Optional[Agent] = None
 _task_scheduler: Optional[Any] = None
 ws_manager = None
 
@@ -70,26 +65,6 @@ def get_heartbeat_monitor() -> HeartbeatMonitor:
     if _heartbeat_monitor is None:
         _heartbeat_monitor = HeartbeatMonitor(timeout_seconds=30)
     return _heartbeat_monitor
-
-
-def get_agent_config() -> Optional[AgentConfig]:
-    return _agent_config
-
-
-def get_initialized_agent() -> Optional[Agent]:
-    return _initialized_agent
-
-
-def init_agent_router(work_directory: str):
-    """Initialize agent router with work directory."""
-    global _agent_config, _initialized_agent
-    
-    config_path = Path(work_directory) / "config.json"
-    _agent_config = load_agent_config(str(config_path))
-    
-    if _agent_config and _agent_config.agent.enabled:
-        _initialized_agent = Agent(_agent_config, get_client_manager(), work_directory)
-        logger.info(f"Agent router initialized: {_agent_config.agent.name}")
 
 
 class ConnectionManager:
@@ -234,20 +209,6 @@ async def check_expired_messages(
     }
 
 
-async def handle_agent_message(websocket: WebSocket, device_id: str, message_data: dict, agent: Agent):
-    """Handle incoming message routed to agent."""
-    content = message_data.get("content", "")
-    
-    response = await agent.process_message(device_id, content)
-    
-    ws_mgr = get_ws_manager()
-    await ws_mgr.send_personal_message({
-        "type": "agent_response",
-        "content": response,
-        "from_client_id": agent.config.agent.device_id
-    }, device_id)
-
-
 async def handle_websocket_message(
     ws_mgr: ConnectionManager,
     from_client_id: str,
@@ -309,18 +270,6 @@ async def websocket_endpoint(websocket: WebSocket, device_id: str, profile: Opti
     
     logger.info(f"WebSocket connection established: device_id={final_device_id}")
     
-    agent_config = get_agent_config()
-    initialized_agent = get_initialized_agent()
-    is_agent_connection = agent_config and agent_config.agent.enabled and agent_config.agent.device_id == final_device_id
-    
-    if is_agent_connection:
-        logger.info(f"Agent connection established: {agent_config.agent.name} ({final_device_id})")
-        await ws_mgr.send_personal_message({
-            "type": "agent_connected",
-            "agent_name": agent_config.agent.name,
-            "device_id": final_device_id
-        }, final_device_id)
-    
     message_handler = get_message_handler()
     pending_count = message_handler.deliver_pending_messages(final_device_id)
     if pending_count > 0:
@@ -337,24 +286,13 @@ async def websocket_endpoint(websocket: WebSocket, device_id: str, profile: Opti
             
             message_type = message_data.get("type")
             
-            if is_agent_connection and message_type == "message":
+            if message_type == "message":
                 to_client = message_data.get("to_client_id")
                 content = message_data.get("content")
                 ttl_seconds = message_data.get("ttl_seconds", 3600)
                 await handle_websocket_message(
-                    ws_mgr, final_device_id, to_client, content, ttl_seconds, "Agent message"
+                    ws_mgr, final_device_id, to_client, content, ttl_seconds, "WS message"
                 )
-            
-            elif message_type == "message":
-                if initialized_agent and agent_config and message_data.get("to_client_id") == agent_config.agent.device_id:
-                    await handle_agent_message(websocket, final_device_id, message_data, initialized_agent)
-                else:
-                    to_client = message_data.get("to_client_id")
-                    content = message_data.get("content")
-                    ttl_seconds = message_data.get("ttl_seconds", 3600)
-                    await handle_websocket_message(
-                        ws_mgr, final_device_id, to_client, content, ttl_seconds, "WS message"
-                    )
             
             elif message_type == "ping":
                 await heartbeat_monitor.record_heartbeat(final_device_id)
