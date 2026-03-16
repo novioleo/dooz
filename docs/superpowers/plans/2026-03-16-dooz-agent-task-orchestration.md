@@ -4,15 +4,7 @@
 
 **Goal:** Implement task orchestration system where Dooz Agent handles multi-turn conversation, creates tasks, and blocks until Task Scheduler returns results.
 
-**Architecture:** Two system agents (Dooz Agent + Task Scheduler) run via FastAPI lifespan. Dooz Agent uses claude-agent-sdk for LLM, communicates via WebSocket. Task Scheduler distributes tasks to sub-agents in parallel. Prompts stored as MD files.
-
-**Scope Note:** This plan implements the **server-side infrastructure only**:
-- Task Scheduler (task distribution)
-- Prompt loader (MD files)
-- WebSocket message handling (task messages)
-- Lifespan registration for system agents
-
-The **Dooz Agent client** (external WebSocket client using claude-agent-sdk) is OUT OF SCOPE - it's a separate client application that connects to this server.
+**Architecture:** Two system agents (Dooz Agent + Task Scheduler) implemented in `system_agents/` directory. Both run as part of server via FastAPI lifespan, communicate via WebSocket internally. Prompts stored as MD files in `system_agents/prompts/`.
 
 **Tech Stack:** Python, FastAPI, WebSocket, claude-agent-sdk==0.1.48, Pydantic
 
@@ -21,29 +13,23 @@ The **Dooz Agent client** (external WebSocket client using claude-agent-sdk) is 
 ## File Structure
 
 ```
-dooz_server/
-├── src/dooz_server/
-│   ├── __init__.py                 # Modify: remove old exports
-│   ├── cli.py                      # Modify: remove device_id from config
-│   ├── router.py                   # Modify: add task message types
-│   ├── schemas.py                  # Modify: add task schemas
-│   ├── agent/                      # DELETE entire directory
-│   ├── task_scheduler/             # NEW: Task distribution component
-│   │   ├── __init__.py
-│   │   └── scheduler.py
-│   └── prompts/                    # NEW: Prompt management
-│       ├── __init__.py
-│       └── loader.py
-├── prompts/                        # NEW: Work dir prompts
-│   ├── 00_system_role.md
-│   ├── 10_context_agents.md
-│   ├── 20_context_history.md
-│   └── 30_user_task.md
-└── tests/
-    ├── agent/                      # DELETE old tests
-    └── task_scheduler/             # NEW: Scheduler tests
-        ├── __init__.py
-        └── test_scheduler.py
+dooz_server/src/dooz_server/
+├── __init__.py                 # Modify: remove old exports
+├── cli.py                      # Modify: remove device_id from config
+├── router.py                   # Modify: add task message types
+├── schemas.py                  # Modify: add task schemas
+├── agent/                      # DELETE entire directory
+├── system_agents/              # NEW: System agents implementation
+│   ├── __init__.py
+│   ├── dooz_agent.py          # Dooz Agent using claude-agent-sdk
+│   ├── task_scheduler.py       # Task distribution component
+│   ├── prompts/               # Prompt MD files
+│   │   ├── 00_system_role.md
+│   │   ├── 10_context_agents.md
+│   │   └── 20_context_history.md
+│   └── loader.py              # Prompt loader
+├── task_scheduler/             # (merged into system_agents/)
+└── prompts/                   # (merged into system_agents/)
 ```
 
 ---
@@ -381,6 +367,12 @@ git commit -m "feat(prompts): add MD file prompt loader"
 
 ## Chunk 3: Task Scheduler Component
 
+**Note:** Task Scheduler is now implemented in Chunk 3b (`system_agents/task_scheduler.py`). Skip to Chunk 3b.
+
+---
+
+## Chunk 3b: System Agents Implementation
+
 ### Task 4: Create Task Scheduler
 
 **Files:**
@@ -716,6 +708,384 @@ Expected: PASS (may need adjustments)
 cd /Users/taoluo/projects/gcode/dooz
 git add dooz_server/src/dooz_server/task_scheduler/ dooz_server/tests/task_scheduler/
 git commit -m "feat(task-scheduler): add task distribution component"
+```
+
+---
+
+## Chunk 3b: System Agents Implementation
+
+### Task 3b: Create System Agents Directory
+
+**Files:**
+- Create: `dooz_server/src/dooz_server/system_agents/__init__.py`
+- Create: `dooz_server/src/dooz_server/system_agents/dooz_agent.py`
+- Create: `dooz_server/src/dooz_server/system_agents/task_scheduler.py`
+- Create: `dooz_server/src/dooz_server/system_agents/loader.py`
+- Create: `dooz_server/src/dooz_server/system_agents/prompts/00_system_role.md`
+- Create: `dooz_server/src/dooz_server/system_agents/prompts/10_context_agents.md`
+- Create: `dooz_server/src/dooz_server/system_agents/prompts/20_context_history.md`
+
+- [ ] **Step 1: Create system_agents directory structure**
+
+```bash
+mkdir -p dooz_server/src/dooz_server/system_agents/prompts
+touch dooz_server/src/dooz_server/system_agents/__init__.py
+```
+
+- [ ] **Step 2: Create Dooz Agent implementation**
+
+```python
+# dooz_server/src/dooz_server/system_agents/dooz_agent.py
+"""Dooz Agent - Main AI agent using claude-agent-sdk."""
+
+import asyncio
+import logging
+import uuid
+from typing import Optional, Any
+
+from claude_agent_sdk import ClaudeSDKClient, ClaudeAgentOptions
+
+logger = logging.getLogger("dooz_server.dooz_agent")
+
+
+class DoozAgent:
+    """Dooz Agent - handles user conversation and task orchestration."""
+    
+    def __init__(self, config: dict, prompt_loader):
+        """Initialize Dooz Agent.
+        
+        Args:
+            config: LLM configuration dict
+            prompt_loader: PromptLoader instance
+        """
+        self.config = config
+        self.prompt_loader = prompt_loader
+        self.client: Optional[ClaudeSDKClient] = None
+        self.session_id = str(uuid.uuid4())
+    
+    async def start(self):
+        """Start the Dooz Agent."""
+        llm_config = self.config.get("llm", {})
+        provider = llm_config.get("provider", "anthropic")
+        
+        options = ClaudeAgentOptions(
+            model=llm_config.get("model", "claude-sonnet-4-20250514"),
+            system_prompt=self.prompt_loader.system_prompt,
+        )
+        
+        # Set up API key based on provider
+        if provider == "anthropic":
+            options.api_key = llm_config.get("api_key", "").replace("${", "").replace("}", "")
+        elif provider == "openai-compatible":
+            options.model = llm_config.get("model", "gpt-4o")
+            # Note: openai-compatible needs additional setup
+        
+        self.client = ClaudeSDKClient(options=options)
+        logger.info("Dooz Agent started")
+    
+    async def process_message(self, message: str, ws_manager) -> str:
+        """Process user message and return response.
+        
+        Args:
+            message: User's message
+            ws_manager: WebSocket manager for task results
+            
+        Returns:
+            Agent's response
+        """
+        if not self.client:
+            await self.start()
+        
+        # Build context with available agents
+        context = self._build_context()
+        
+        # Send to LLM
+        await self.client.query(f"{context}\n\nUser: {message}")
+        
+        response = ""
+        async for msg in self.client.receive_response():
+            # Process response - check for task format
+            if self._contains_task(msg):
+                task_result = await self._execute_task(msg, ws_manager)
+                return task_result
+            response += self._extract_text(msg)
+        
+        return response
+    
+    def _build_context(self) -> str:
+        """Build context from prompt loader."""
+        return f"{self.prompt_loader.system_prompt}\n\n{self.prompt_loader.context_info}"
+    
+    def _contains_task(self, message: Any) -> bool:
+        """Check if message contains task structure."""
+        # Parse response for "Tasks:" keyword
+        msg_str = str(message)
+        return "Tasks:" in msg_str or "tasks:" in msg_str.lower()
+    
+    async def _execute_task(self, message: Any, ws_manager) -> str:
+        """Execute tasks via Task Scheduler.
+        
+        Args:
+            message: LLM response containing tasks
+            ws_manager: WebSocket manager
+            
+        Returns:
+            Aggregated result
+        """
+        # Parse task structure from message
+        tasks = self._parse_tasks(message)
+        
+        if not tasks:
+            return "Failed to parse tasks from response"
+        
+        # Submit to task-scheduler via WS message
+        task_msg = {
+            "type": "task_submit",
+            "task_data": {
+                "task_id": str(uuid.uuid4()),
+                "goal": "User requested task",
+                "sub_tasks": tasks
+            }
+        }
+        
+        # Send to task-scheduler
+        await ws_manager.send_personal_message(task_msg, "task-scheduler")
+        
+        # Block and wait for result (60s timeout)
+        try:
+            result = await asyncio.wait_for(
+                self._wait_for_result(task_msg["task_data"]["task_id"]),
+                timeout=60
+            )
+            return self._format_task_result(result)
+        except asyncio.TimeoutError:
+            return "Task execution timed out"
+    
+    async def _wait_for_result(self, task_id: str) -> dict:
+        """Wait for task result from Task Scheduler."""
+        # This would be implemented with asyncio.Future
+        # Task Scheduler sends task_result back via WS
+        pass
+    
+    def _parse_tasks(self, message: Any) -> list[dict]:
+        """Parse task structure from LLM response."""
+        # Extract JSON array from response
+        # Format: Tasks: [{"agent_id": "...", "goal": "..."}]
+        pass
+    
+    def _extract_text(self, message: Any) -> str:
+        """Extract text content from message."""
+        pass
+    
+    def _format_task_result(self, result: dict) -> str:
+        """Format task result into natural language."""
+        pass
+    
+    async def close(self):
+        """Close the agent."""
+        if self.client:
+            await self.client.disconnect()
+```
+
+- [ ] **Step 3: Create Task Scheduler implementation**
+
+```python
+# dooz_server/src/dooz_server/system_agents/task_scheduler.py
+"""Task Scheduler - distributes tasks to sub-agents."""
+
+import asyncio
+import logging
+import uuid
+from datetime import datetime
+
+logger = logging.getLogger("dooz_server.task_scheduler")
+
+
+class TaskScheduler:
+    """Handles task distribution to sub-agents and result aggregation."""
+    
+    DEFAULT_TIMEOUT = 30
+    DEFAULT_MAX_RETRIES = 3
+    
+    def __init__(self, ws_manager):
+        """Initialize Task Scheduler.
+        
+        Args:
+            ws_manager: WebSocket connection manager
+        """
+        self.ws_manager = ws_manager
+        self._pending_tasks: dict[str, asyncio.Future] = {}
+    
+    async def submit_task(self, task: dict) -> dict:
+        """Submit a task for execution."""
+        task_id = task.get("task_id", str(uuid.uuid4()))
+        sub_tasks = task.get("sub_tasks", [])
+        
+        logger.info(f"TaskScheduler: {task_id} with {len(sub_tasks)} sub-tasks")
+        
+        if not sub_tasks:
+            return {"task_id": task_id, "status": "completed", "sub_results": []}
+        
+        # Distribute to sub-agents in parallel
+        results = await self._distribute_and_collect(task_id, sub_tasks)
+        
+        # Determine status
+        success_count = sum(1 for r in results if r.get("success"))
+        if success_count == len(sub_tasks):
+            status = "completed"
+        elif success_count == 0:
+            status = "failed"
+        else:
+            status = "partial"
+        
+        return {
+            "task_id": task_id,
+            "status": status,
+            "sub_results": results,
+            "completed_at": datetime.now().isoformat()
+        }
+    
+    async def _distribute_and_collect(self, task_id: str, sub_tasks: list[dict]) -> list[dict]:
+        """Send sub-tasks to all sub-agents in parallel, collect results."""
+        # Send all sub-tasks
+        send_tasks = []
+        for subtask in sub_tasks:
+            msg = {
+                "type": "sub_task",
+                "task_id": task_id,
+                "sub_task_id": subtask.get("sub_task_id", str(uuid.uuid4())),
+                "goal": subtask.get("goal"),
+                "parameters": subtask.get("parameters", {}),
+                "from_client_id": "task-scheduler"
+            }
+            send_tasks.append(self.ws_manager.send_personal_message(msg, subtask.get("agent_id")))
+        
+        if send_tasks:
+            asyncio.create_task(asyncio.gather(*send_tasks, return_exceptions=True))
+        
+        # Wait for results with timeout
+        # Implementation continues...
+        return []
+    
+    async def handle_sub_task_result(self, message: dict):
+        """Handle result from sub-agent."""
+        # Complete the future for this sub-task
+        pass
+```
+
+- [ ] **Step 4: Create prompt files**
+
+```markdown
+# dooz_server/src/dooz_server/system_agents/prompts/00_system_role.md
+
+You are Dooz Assistant, an AI agent that helps users interact with smart home devices and other connected services through sub-agents.
+
+Your role is to:
+1. Understand user requests through conversation
+2. Ask clarifying questions if needed
+3. When user intent is clear, create tasks for sub-agents
+4. Aggregate results and present to user
+
+## Response Format
+
+When you need sub-agents to execute tasks, respond with:
+
+Direct response: [Your response to the user]
+
+OR
+
+Tasks:
+[
+  {"agent_id": "light-agent", "goal": "打开客厅灯光"},
+  {"agent_id": "speaker-agent", "goal": "播放舒缓音乐"}
+]
+```
+
+```markdown
+# dooz_server/src/dooz_server/system_agents/prompts/10_context_agents.md
+
+# Available Sub-Agents
+
+(No agents connected yet)
+```
+
+```markdown
+# dooz_server/src/dooz_server/system_agents/prompts/20_context_history.md
+
+# Conversation History
+
+(No history yet)
+```
+
+- [ ] **Step 5: Create loader for system agents**
+
+```python
+# dooz_server/src/dooz_server/system_agents/loader.py
+"""Prompt loader for system agents."""
+
+import logging
+from pathlib import Path
+from typing import Optional
+
+logger = logging.getLogger("dooz_server.system_agents.loader")
+
+
+class SystemAgentsLoader:
+    """Loads and manages system agents and their prompts."""
+    
+    def __init__(self, base_dir: str = None):
+        """Initialize system agents loader.
+        
+        Args:
+            base_dir: Base directory for system_agents (default: this file's directory)
+        """
+        if base_dir is None:
+            base_dir = Path(__file__).parent
+        else:
+            base_dir = Path(base_dir)
+        
+        self.prompts_dir = base_dir / "prompts"
+        self._load_prompts()
+    
+    def _load_prompts(self):
+        """Load prompt files."""
+        # Load system_role.md (required)
+        system_role_file = self.prompts_dir / "00_system_role.md"
+        if not system_role_file.exists():
+            raise FileNotFoundError(f"Required prompt file not found: {system_role_file}")
+        
+        self.system_prompt = system_role_file.read_text(encoding='utf-8').strip()
+        
+        # Load context files
+        self.context_agents = self._load_prompt("10_context_agents.md")
+        self.context_history = self._load_prompt("20_context_history.md")
+        
+        logger.info(f"Loaded system prompts from {self.prompts_dir}")
+    
+    def _load_prompt(self, filename: str) -> str:
+        """Load a prompt file, return empty string if not found."""
+        file_path = self.prompts_dir / filename
+        if file_path.exists():
+            return file_path.read_text(encoding='utf-8').strip()
+        return ""
+    
+    @property
+    def context_info(self) -> str:
+        """Get combined context info."""
+        parts = []
+        if self.context_agents:
+            parts.append(self.context_agents)
+        if self.context_history:
+            parts.append(self.context_history)
+        return "\n\n".join(parts)
+```
+
+- [ ] **Step 6: Commit**
+
+```bash
+cd /Users/taoluo/projects/gcode/dooz
+git add dooz_server/src/dooz_server/system_agents/
+git commit -m "feat(system-agents): add dooz agent and task scheduler implementation"
 ```
 
 ---
@@ -1059,7 +1429,9 @@ git commit -m "feat(prompts): add sample prompt files"
 ## Acceptance Criteria
 
 - [ ] Task schemas added to schemas.py
-- [ ] Prompt loader reads .md files, raises FileNotFoundError if missing
+- [ ] system_agents/ directory created with dooz_agent.py and task_scheduler.py
+- [ ] Prompts loaded from system_agents/prompts/ directory
+- [ ] Dooz Agent uses claude-agent-sdk for LLM conversation
 - [ ] TaskScheduler distributes sub-tasks in parallel
 - [ ] Router handles task_submit, task_result, sub_task messages
 - [ ] CLI generates .md prompt files
