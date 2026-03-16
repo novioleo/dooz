@@ -22,6 +22,7 @@ class LLMConfig(BaseModel):
     provider: str = Field(default="openai")
     model: str = Field(default="gpt-4o")
     api_key: str = Field(default="")
+    base_url: Optional[str] = Field(default=None, description="Base URL for openai-compatible providers")
     temperature: float = Field(default=0.7)
     max_tokens: int = Field(default=4096)
     timeout_seconds: int = Field(default=30)

@@ -5,7 +5,7 @@ import logging
 import urllib.parse
 from pathlib import Path
 from fastapi import APIRouter, Depends, HTTPException, WebSocket, WebSocketDisconnect
-from typing import Annotated, Optional
+from typing import Annotated, Optional, Any
 
 from .client_manager import ClientManager
 from .message_handler import MessageHandler
@@ -19,12 +19,36 @@ logger = logging.getLogger("dooz_server")
 
 router = APIRouter()
 
+# Message Types
+MESSAGE_TYPES = {
+    "message", "message_sent", "ping", "pong", "heartbeat", "heartbeat_ack",
+    "pending_delivered", "agent_connected", "agent_response"
+}
+
+# Task Message Types
+TASK_MESSAGE_TYPES = {
+    "task_submit",      # Dooz Agent -> Task Scheduler
+    "task_result",      # Task Scheduler -> Dooz Agent
+    "sub_task",         # Task Scheduler -> Sub-Agent
+    "sub_task_result",  # Sub-Agent -> Task Scheduler
+    "task_failed",      # Sub-Agent -> Task Scheduler
+}
+
 _client_manager: Optional[ClientManager] = None
 _message_handler: Optional[MessageHandler] = None
 _heartbeat_monitor: Optional[HeartbeatMonitor] = None
 _agent_config: Optional[AgentConfig] = None
 _initialized_agent: Optional[Agent] = None
+_task_scheduler: Optional[Any] = None
 ws_manager = None
+
+
+def get_task_scheduler() -> "TaskScheduler":
+    global _task_scheduler
+    if _task_scheduler is None:
+        from dooz_server.system_agents.task_scheduler import TaskScheduler
+        _task_scheduler = TaskScheduler(get_ws_manager())
+    return _task_scheduler
 
 
 def get_client_manager() -> ClientManager:
@@ -224,6 +248,35 @@ async def handle_agent_message(websocket: WebSocket, device_id: str, message_dat
     }, device_id)
 
 
+async def handle_websocket_message(
+    ws_mgr: ConnectionManager,
+    from_client_id: str,
+    to_client_id: str,
+    content: str,
+    ttl_seconds: int,
+    log_prefix: str,
+) -> tuple[bool, str, Optional[str]]:
+    """Send a message via message_handler and send response via WebSocket."""
+    message_handler = get_message_handler()
+    success, msg, msg_id = message_handler.send_message(
+        from_client_id=from_client_id,
+        to_client_id=to_client_id,
+        content=content,
+        ttl_seconds=ttl_seconds
+    )
+    
+    await ws_mgr.send_personal_message({
+        "type": "message_sent",
+        "success": success,
+        "message": msg,
+        "message_id": msg_id,
+        "to_client_id": to_client_id
+    }, from_client_id)
+    
+    logger.info(f"{log_prefix}: {from_client_id} -> {to_client_id}: {content[:30]}...")
+    return success, msg, msg_id
+
+
 @router.websocket("/ws/{device_id}")
 async def websocket_endpoint(websocket: WebSocket, device_id: str, profile: Optional[str] = None):
     """WebSocket endpoint for client connections with heartbeat support and optional profile."""
@@ -287,49 +340,21 @@ async def websocket_endpoint(websocket: WebSocket, device_id: str, profile: Opti
             if is_agent_connection and message_type == "message":
                 to_client = message_data.get("to_client_id")
                 content = message_data.get("content")
-                
-                success, msg, msg_id = message_handler.send_message(
-                    from_client_id=final_device_id,
-                    to_client_id=to_client,
-                    content=content,
-                    ttl_seconds=message_data.get("ttl_seconds", 3600)
+                ttl_seconds = message_data.get("ttl_seconds", 3600)
+                await handle_websocket_message(
+                    ws_mgr, final_device_id, to_client, content, ttl_seconds, "Agent message"
                 )
-                
-                await ws_mgr.send_personal_message({
-                    "type": "message_sent",
-                    "success": success,
-                    "message": msg,
-                    "message_id": msg_id,
-                    "to_client_id": to_client
-                }, final_device_id)
-                
-                logger.info(f"Agent message: {final_device_id} -> {to_client}: {content[:30]}...")
             
             elif message_type == "message":
                 if initialized_agent and agent_config and message_data.get("to_client_id") == agent_config.agent.device_id:
                     await handle_agent_message(websocket, final_device_id, message_data, initialized_agent)
                 else:
-                    message_handler = get_message_handler()
                     to_client = message_data.get("to_client_id")
                     content = message_data.get("content")
                     ttl_seconds = message_data.get("ttl_seconds", 3600)
-                    
-                    success, msg, msg_id = message_handler.send_message(
-                        from_client_id=final_device_id,
-                        to_client_id=to_client,
-                        content=content,
-                        ttl_seconds=ttl_seconds
+                    await handle_websocket_message(
+                        ws_mgr, final_device_id, to_client, content, ttl_seconds, "WS message"
                     )
-                    
-                    await ws_mgr.send_personal_message({
-                        "type": "message_sent",
-                        "success": success,
-                        "message": msg,
-                        "message_id": msg_id,
-                        "to_client_id": to_client
-                    }, final_device_id)
-                    
-                    logger.info(f"WS message: {final_device_id} -> {to_client}: {content[:30]}...")
             
             elif message_type == "ping":
                 await heartbeat_monitor.record_heartbeat(final_device_id)
@@ -345,6 +370,54 @@ async def websocket_endpoint(websocket: WebSocket, device_id: str, profile: Opti
                     "server_time": asyncio.get_event_loop().time()
                 }, final_device_id)
                 logger.debug(f"Heartbeat from {final_device_id}")
+            
+            elif message_type == "task_submit":
+                # Task submission from Dooz Agent
+                task_scheduler = get_task_scheduler()
+                task_data = message_data.get("task_data", {})
+                
+                from dooz_server.system_agents.task_scheduler import Task
+                task = Task(
+                    agent_id=task_data.get("agent_id", ""),
+                    goal=task_data.get("goal", ""),
+                    params=task_data.get("params", {})
+                )
+                
+                # Wait for task result and send back to dooz-agent
+                result = await task_scheduler.submit_task_and_wait(task)
+                
+                await ws_mgr.send_personal_message({
+                    "type": "task_result",
+                    "task_id": result.task_id,
+                    "status": "completed" if result.success else "failed",
+                    "success": result.success,
+                    "result": result.result,
+                    "error": result.error
+                }, final_device_id)
+                
+                logger.info(f"Task completed: {result.task_id} success={result.success}")
+            
+            elif message_type == "sub_task":
+                # Route sub-task to target sub-agent
+                target_agent = message_data.get("to_client_id") or message_data.get("agent_id")
+                if target_agent:
+                    await ws_mgr.send_personal_message(message_data, target_agent)
+                    logger.info(f"Sub-task routed to {target_agent}: {message_data.get('task_id')}")
+            
+            elif message_type == "sub_task_result":
+                # Result from sub-agent
+                task_scheduler = get_task_scheduler()
+                await task_scheduler.handle_sub_task_result(message_data)
+                logger.info(f"Sub-task result received: {message_data.get('task_id')}")
+            
+            elif message_type == "task_failed":
+                # Failure from sub-agent
+                task_scheduler = get_task_scheduler()
+                await task_scheduler.handle_sub_task_result({
+                    **message_data,
+                    "success": False
+                })
+                logger.info(f"Task failed: {message_data.get('task_id')}")
                 
     except WebSocketDisconnect:
         ws_mgr.disconnect(final_device_id)

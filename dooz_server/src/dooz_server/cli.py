@@ -21,12 +21,29 @@ logging.basicConfig(
 logging.getLogger("uvicorn.access").setLevel(logging.WARNING)
 logging.getLogger("uvicorn").setLevel(logging.INFO)
 
+from contextlib import asynccontextmanager
+
 logger = logging.getLogger("dooz_server")
 
 if TYPE_CHECKING:
     from fastapi import FastAPI
 
 DEFAULT_WORK_DIRECTORY = os.environ.get("DOOZ_WORK_DIRECTORY", os.getcwd())
+
+
+@asynccontextmanager
+async def lifespan(app: "FastAPI"):
+    """Lifespan context for server startup/shutdown."""
+    from dooz_server.router import get_client_manager
+    client_mgr = get_client_manager()
+    
+    # Pre-register system agents so they can be discovered
+    client_mgr.register_client("dooz-agent", "Dooz Assistant", role="dooz")
+    client_mgr.register_client("task-scheduler", "Task Scheduler", role="system")
+    
+    logger.info("System agents registered: dooz-agent, task-scheduler")
+    yield
+    logger.info("Server shutting down")
 
 
 def create_app(work_directory: str = None) -> "FastAPI":
@@ -40,7 +57,8 @@ def create_app(work_directory: str = None) -> "FastAPI":
     app = FastAPI(
         title="Dooz WebSocket Server",
         description="WebSocket message relay server for client-to-client communication",
-        version="0.1.0"
+        version="0.1.0",
+        lifespan=lifespan
     )
     
     app.add_middleware(
@@ -100,13 +118,12 @@ def cli():
 
 @cli.command()
 @click.argument("work_dir", default=".", type=click.Path())
-@click.option("--agent-name", help="Agent name (default: Dooz Assistant)")
-@click.option("--agent-device-id", help="Agent device ID (default: dooz-agent)")
-@click.option("--llm-provider", type=click.Choice(["openai", "anthropic"]), help="LLM provider (default: openai)")
+@click.option("--llm-provider", type=click.Choice(["openai", "anthropic", "openai-compatible"]), help="LLM provider (default: openai)")
 @click.option("--llm-model", help="LLM model name")
 @click.option("--llm-api-key", help="LLM API key (or use ${ENV_VAR} format)")
+@click.option("--llm-base-url", help="Base URL for openai-compatible providers")
 @click.option("--force", "-f", is_flag=True, help="Force overwrite existing files")
-def init(work_dir, agent_name, agent_device_id, llm_provider, llm_model, llm_api_key, force):
+def init(work_dir, llm_provider, llm_model, llm_api_key, llm_base_url, force):
     """Initialize a work directory with config and prompts."""
     work_path = Path(work_dir)
     
@@ -117,20 +134,22 @@ def init(work_dir, agent_name, agent_device_id, llm_provider, llm_model, llm_api
     # Build config based on arguments
     config = DEFAULT_CONFIG.copy()
     
-    if agent_name:
-        config["agent"]["name"] = agent_name
-    if agent_device_id:
-        config["agent"]["device_id"] = agent_device_id
-    
     # Handle LLM settings
     if llm_provider:
         config["llm"]["provider"] = llm_provider
         if not llm_api_key:
-            config["llm"]["api_key"] = "${ANTHROPIC_API_KEY}" if llm_provider == "anthropic" else "${OPENAI_API_KEY}"
+            if llm_provider == "anthropic":
+                config["llm"]["api_key"] = "${ANTHROPIC_API_KEY}"
+            elif llm_provider == "openai":
+                config["llm"]["api_key"] = "${OPENAI_API_KEY}"
+            else:
+                config["llm"]["api_key"] = "${OPENAI_API_KEY}"
     if llm_model:
         config["llm"]["model"] = llm_model
     if llm_api_key:
         config["llm"]["api_key"] = llm_api_key
+    if llm_base_url:
+        config["llm"]["base_url"] = llm_base_url
     
     # Create config.json
     config_path = work_path / "config.json"

@@ -9,13 +9,14 @@ logger = logging.getLogger("dooz_server.agent.llm_client")
 
 
 class LLMClient:
-    """Client for calling LLM APIs (OpenAI/Anthropic)."""
+    """Client for calling LLM APIs (OpenAI/Anthropic/openai-compatible)."""
     
     def __init__(self, config: LLMConfig):
         """Initialize LLM client."""
         self.provider = config.provider.lower()
         self.model = config.model
         self.api_key = config.api_key
+        self.base_url = config.base_url
         self.temperature = config.temperature
         self.max_tokens = config.max_tokens
         self.timeout = config.timeout_seconds
@@ -25,14 +26,15 @@ class LLMClient:
     
     def _init_client(self):
         """Initialize the underlying LLM client."""
-        if self.provider == "openai":
+        if self.provider in ("openai", "openai-compatible"):
             try:
                 from openai import AsyncOpenAI
                 self._client = AsyncOpenAI(
                     api_key=self.api_key,
+                    base_url=self.base_url,
                     timeout=self.timeout
                 )
-                logger.info(f"Initialized OpenAI client with model {self.model}")
+                logger.info(f"Initialized OpenAI client with model {self.model}, base_url={self.base_url}")
             except ImportError:
                 logger.error("openai package not installed")
                 raise ImportError("Please install openai: pip install openai")
@@ -63,7 +65,7 @@ class LLMClient:
 User Task:
 {user_message}"""
         
-        if self.provider == "openai":
+        if self.provider in ("openai", "openai-compatible"):
             return await self._call_openai(system_prompt, full_user_message)
         elif self.provider == "anthropic":
             return await self._call_anthropic(system_prompt, full_user_message)

@@ -21,6 +21,7 @@
 ---
 
 ## What is dooz?
+> You can pronounce it as "dùzi" (肚子) in Chinese
 
 dooz is a distributed multi-agent system where:
 
