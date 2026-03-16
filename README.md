@@ -21,31 +21,102 @@
 ---
 
 ## What is dooz?
+
 > You can pronounce it as "dùzi" (肚子) in Chinese
 
-dooz is a distributed multi-agent system where:
+dooz is a **distributed multi-agent system** with a unique **infinite nesting** design philosophy:
 
 - **Every device is an agent** - phones, speakers, TVs, lights, sensors... each with its own simple capabilities
-- **Central coordinator** - a main agent orchestrates tasks, breaking down complex requests and dispatching work to specialized agents
+- **Hierarchical orchestration** - agents can connect to other agents, forming unlimited nested structures
+- **Infinite nesting** - any dooz server can act as a sub-agent to connect to another dooz server, creating layered organizational hierarchies
 - **Hardware-ready** - unlike pure software solutions, dooz is designed to interact with real hardware
-- **Token-efficient & intelligent** - far less token consumption than frameworks like OpenAI Agents, while being smarter
-
-Imagine telling your phone: "Turn on the TV in the living room and play the latest tech news" — dooz will:
-1. Understand your intent
-2. Break it into subtasks ("turn on TV" + "play news")
-3. Dispatch to the right agents
-4. Execute in parallel and notify you when done
 
 ---
 
-## Why dooz?
+## 🌳 Infinite Nesting Design Philosophy
 
-| Feature | dooz | Other Frameworks |
-|---------|------|------------------|
-| Hardware support | ✅ Native | ❌ Software only |
-| Token efficiency | ✅ Optimized | ❌ Token-heavy |
-| Intelligence | ✅ Smart routing | ⚠️ Basic |
-| Multi-agent coordination | ✅ Built-in | ⚠️ Manual |
+The core design philosophy of dooz is **infinite nesting** — agents can be composed hierarchically without limits.
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                        Root Dooz Server                         │
+│                   (Top-level Coordinator)                       │
+└───────────────────────────┬─────────────────────────────────────┘
+                            │
+        ┌───────────────────┼───────────────────┐
+        ▼                   ▼                   ▼
+┌───────────────┐   ┌───────────────┐   ┌───────────────┐
+│ Sub Agent A   │   │ Sub Agent B   │   │ Sub Agent C   │
+│ (Server 1)    │   │ (Server 2)    │   │ (Server 3)    │
+└───────┬───────┘   └───────┬───────┘   └───────┬───────┘
+        │                   │                   │
+        ▼                   ▼                   ▼
+┌───────────────┐   ┌───────────────┐   ┌───────────────┐
+│ Sub-Sub A1    │   │ Sub-Sub B1    │   │ Sub-Sub C1    │
+│ (Nested)      │   │ (Nested)      │   │ (Nested)      │
+└───────────────┘   └───────────────┘   └───────────────┘
+        │
+        ▼
+   ... (unlimited depth)
+```
+
+### How It Works
+
+1. **Any server can be a sub-agent**: A dooz server can connect to another dooz server as a sub-agent
+2. **Unlimited layers**: There's no limit to how deep the hierarchy can go
+3. **Distributed intelligence**: Each level delegates and coordinates tasks to its children
+4. **Self-similar architecture**: The same patterns repeat at every level
+
+### Why Infinite Nesting?
+
+- **Scalability**: Handle millions of devices by organizing them in hierarchical groups
+- **Fault tolerance**: Local failures don't cascade to the entire system
+- **Geographic optimization**: Group devices by location, network proximity
+- **Specialization**: Each level can have specialized capabilities
+- **Natural mapping**: Mirrors how organizations and biological systems work
+
+---
+
+## Quick Start
+
+### Server
+
+```bash
+cd dooz_server
+uv sync
+uv run uvicorn dooz_server.main:app --reload --port 8000
+```
+
+### Run Tests
+
+```bash
+cd dooz_server
+uv run pytest
+```
+
+---
+
+## Architecture
+
+### Core Components
+
+| Component | Description |
+|-----------|-------------|
+| `dooz_server` | WebSocket-based message relay server |
+| `client/dooz_python_client` | Python client library |
+| `system_agents` | AI agent implementations (DoozAgent, TaskScheduler) |
+
+### Message Flow
+
+```
+Client A ──WebSocket──▶ dooz_server ──▶ Client B
+                              │
+                              ▼
+                       [Message Queue]
+                              │
+                              ▼
+                       [Offline Delivery]
+```
 
 ---
 

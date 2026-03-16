@@ -1,14 +1,14 @@
-<!-- Context: project-intelligence/technical | Priority: critical | Version: 2.0 | Updated: 2026-03-14 -->
+<!-- Context: project-intelligence/technical | Priority: critical | Version: 3.0 | Updated: 2026-03-16 -->
 
 # Technical Domain
 
-> dooz technical foundation: ROS2-based distributed agent system with multi-platform SDKs.
+> dooz technical foundation: WebSocket-based distributed agent system with Python server and client.
 
 ## Quick Reference
 
 - **Purpose**: Understand dooz architecture, tech stack, and development patterns
-- **Update When**: Tech stack changes, new platforms, architecture decisions
-- **Audience**: Developers building core framework, Android/iOS SDKs
+- **Update When**: Tech stack changes, new components, architecture decisions
+- **Audience**: Developers building the server, client library, or system agents
 
 ---
 
@@ -16,28 +16,53 @@
 
 | Layer | Technology | Version | Rationale |
 |-------|-----------|---------|-----------|
-| Protocol | ROS2 | Jazzy Jalisco / Humble | Decentralized message bus, mature ecosystem |
-| Network | Tailscale | Latest | Zero-config VPN, MagicDNS, WireGuard-based |
-| Core Language | C++ / Rust | C++17 / Rust 1.75+ | Performance-critical ROS2 nodes |
-| Android SDK | Kotlin | 1.9.x | Native Android development |
-| macOS SDK | Swift | 5.9+ | Native Apple platform development |
-| Build | Colcon + CMake | Latest | ROS2 standard build tools |
+| Server | FastAPI + uvicorn + websockets | Latest | Modern async Python, WebSocket support, auto-docs |
+| Client | Python | 3.12+ | Simple, widespread, async-native |
+| Testing | pytest + pytest-asyncio | Latest | Async testing support |
+| AI Agents | Claude Agent SDK | Latest | LLM-powered task execution |
+| Message Format | JSON | - | Simple, widely supported |
+
+---
+
+## Core Design Philosophy: Infinite Nesting
+
+The defining characteristic of dooz is **infinite nesting** — any dooz server can act as a sub-agent to another dooz server.
+
+```
+Root Dooz Server (Level 0)
+    │
+    ├── Sub Agent Server (Level 1)
+    │       │
+    │       └── Sub-Sub Server (Level 2)
+    │               │
+    │               └── ... (unlimited depth)
+    │
+    └── Sub Agent Server (Level 1)
+            │
+            └── ... (unlimited depth)
+```
+
+**Benefits:**
+- **Scalability**: Organize millions of devices hierarchically
+- **Fault tolerance**: Local failures don't cascade
+- **Geographic optimization**: Group by location/proximity
+- **Natural mapping**: Mirrors organizational/biological patterns
 
 ---
 
 ## Architecture Pattern
 
 ```
-Type: Agent-based distributed system (decentralized)
-Pattern: Dynamic brain election with peer-to-peer communication
+Type: Agent-based distributed system (hierarchical)
+Pattern: Infinite nesting with WebSocket communication
 ```
 
 ### Why This Architecture?
 
-- **No single point of failure**: Dynamic brain election based on compute power + availability + success rate
-- **Efficient communication**: Direct device-to-device messages via ROS2 topics (eliminates master-slave polling)
-- **Scalable**: New devices auto-discover via Tailscale VPN mesh
-- **Flexibility**: Brain node can be mobile, desktop, or cloud
+- **WebSocket**: Real-time bidirectional messaging, low overhead
+- **Hierarchical coordination**: Tasks flow down, results flow up
+- **Sub-agent protocol**: Standardized task delegation between servers
+- **Offline message queue**: Handles disconnected clients gracefully
 
 ---
 
@@ -45,25 +70,27 @@ Pattern: Dynamic brain election with peer-to-peer communication
 
 ```
 dooz/
-├── docs/                          # Documentation
-│   ├── dev/                       # Development docs (architecture, design)
-│   ├── user/                      # User docs (Quick Start, usage)
-│   └── contributor/               # Contributor guidelines
-├── core/
-│   ├── dooz_ros2/                 # ROS2 packages
-│   │   ├── dooz_core/             # Main orchestration node
-│   │   ├── dooz_discovery/        # Device discovery service
-│   │   ├── dooz_election/         # Dynamic brain election
-│   │   └── dooz_transport/        # Message transport service
-│   └── dooz_protocol/            # Protocol definitions (msg/srv/action)
-│       ├── msg/                   # ROS message definitions
-│       ├── srv/                   # ROS service definitions
-│       └── action/                # ROS action definitions
-├── clients/
-│   ├── android/                   # Kotlin SDK (dooz-client-android)
-│   └── macos/                     # Swift SDK (dooz-client-macos)
-└── scripts/
-    └── install/                   # Installation scripts
+├── dooz_server/                     # Server package
+│   ├── src/dooz_server/
+│   │   ├── main.py                 # App entry point
+│   │   ├── router.py               # FastAPI routes + WebSocket endpoints
+│   │   ├── client_manager.py       # Connected client management
+│   │   ├── message_handler.py      # Message routing logic
+│   │   ├── message_queue.py        # Offline message storage
+│   │   ├── heartbeat.py            # Connection health monitoring
+│   │   ├── schemas.py              # Pydantic models
+│   │   └── system_agents/          # AI agent implementations
+│   │       ├── dooz_agent.py       # Dooz AI agent
+│   │       ├── task_scheduler.py   # Task distribution to sub-agents
+│   │       └── loader.py           # Prompt loader
+│   └── tests/                      # Test suite
+├── client/
+│   └── dooz_python_client/         # Python client library
+├── docs/
+│   ├── dev/                        # Development docs
+│   └── user/                        # User docs
+└── .opencode/
+    └── context/                     # Context files
 ```
 
 ---
@@ -72,57 +99,88 @@ dooz/
 
 | Decision | Rationale | Impact |
 |----------|-----------|--------|
-| ROS2 over MQTT | Truly decentralized, topic-based pub/sub, native DDS support | Efficient many-to-many communication |
-| Tailscale VPN | Zero-config discovery, MagicDNS, automatic NAT traversal | Devices auto-discover without manual setup |
-| Dynamic Brain Election | Weighted ranking (compute + availability + success) | No fixed master, adapts to device capabilities |
-| Distributed ReAct | Each device tracks action三元组 (done/doing/next) | Eliminates polling, enables proactive notifications |
-| Memory per Device | Each sub-agent stores data locally, exposes via skills | Privacy-preserving, no central data store |
+| FastAPI + WebSocket | Modern async framework, native WebSocket, auto API docs | Fast development, easy debugging |
+| Python 3.12+ | Native async/await, type hints, modern syntax | Clean, maintainable code |
+| JSON messages | Simple, universal, easy to debug | Broad compatibility |
+| Task delegation protocol | Standardized sub-agent communication | Enables infinite nesting |
+| Offline message queue | Store messages for disconnected clients | Reliability, eventual delivery |
 
 ---
 
-## Integration Points
+## API Endpoints
 
-| System | Purpose | Protocol | Direction |
-|--------|---------|----------|-----------|
-| Tailscale Network | Device discovery, P2P communication | WireGuard | Internal |
-| ROS2 DDS | Message exchange between nodes | DDS/RTPS | Internal |
-| Android Client | Mobile SDK for Android devices | ROS2 + Tailscale SDK | Outbound |
-| macOS Client | Desktop SDK for Apple devices | ROS2 + Tailscale SDK | Outbound |
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/health` | GET | Health check |
+| `/clients` | GET | List all connected clients |
+| `/clients/{client_id}` | GET | Get client info |
+| `/message` | POST | Send a message |
+| `/ws/{client_id}` | WebSocket | WebSocket connection |
+
+---
+
+## Message Protocol
+
+### Client Messages
+
+```json
+{
+  "type": "message",
+  "from": "client-a",
+  "to": "client-b",
+  "content": "Hello!",
+  "timestamp": "2026-03-16T10:00:00Z"
+}
+```
+
+### Task Messages (Sub-agent Protocol)
+
+```json
+{
+  "type": "task_submit",
+  "task_id": "task-123",
+  "agent_id": "sub-agent-1",
+  "goal": "Process this data"
+}
+```
+
+```json
+{
+  "type": "task_result",
+  "task_id": "task-123",
+  "success": true,
+  "result": "Processed 100 items"
+}
+```
 
 ---
 
 ## Development Environment
 
-### ROS2 Setup (Ubuntu 22.04+)
+### Server Setup
 
 ```bash
-# Install ROS2 Jazzy
-sudo apt update
-sudo apt install ros-jazzy-desktop
-
-# Setup workspace
-mkdir -p ~/dooz_ws/src
-cd ~/dooz_ws
-source /opt/ros/jazzy/setup.bash
-
-# Clone and build
-colcon build --packages-select dooz_protocol dooz_discovery dooz_election dooz_transport dooz_core
+cd dooz_server
+uv sync
+uv run uvicorn dooz_server.main:app --reload --port 8000
 ```
 
-### Android SDK
+### Running Tests
 
 ```bash
-# Requires Android Studio or gradle
-cd clients/android
-./gradlew build
+cd dooz_server
+uv run pytest
+uv run pytest --cov=dooz_server --cov-report=term-missing
 ```
 
-### macOS SDK
+### Code Quality
 
 ```bash
-# Requires Xcode
-cd clients/macos
-xcodebuild -scheme dooz-client-macos
+# Type checking (if mypy configured)
+uv run mypy dooz_server
+
+# Linting (if ruff configured)
+uv run ruff check dooz_server
 ```
 
 ---
@@ -131,12 +189,12 @@ xcodebuild -scheme dooz-client-macos
 
 | Type | Convention | Example |
 |------|------------|---------|
-| ROS2 Packages | dooz_\<feature\> | dooz_discovery, dooz_election |
-| ROS2 Nodes | dooz_\<feature\>_node | dooz_discovery_node |
-| Messages | CamelCase.msg | BrainElection.msg, DeviceInfo.msg |
-| Services | CamelCase.srv | GetDevices.srv, RegisterDevice.srv |
-| Files | lowercase_with_underscores.cpp | device_info.cpp, discovery_client.cpp |
-| Functions | verbPhrase | discoverDevices(), registerClient() |
+| Modules | snake_case | `client_manager.py` |
+| Classes | PascalCase | `class ClientManager:` |
+| Functions | snake_case | `def get_client_manager():` |
+| Variables | snake_case | `client_id = "abc"` |
+| Constants | UPPER_SNAKE | `MAX_CONNECTIONS = 100` |
+| Type aliases | PascalCase | `MessageHandler = ...` |
 
 ---
 
@@ -145,11 +203,11 @@ xcodebuild -scheme dooz-client-macos
 | Milestone | Status | Description |
 |-----------|--------|-------------|
 | M1 | ✅ Complete | Project structure, README |
-| M2 | 🔄 In Progress | ROS2 core framework |
-| M3 | ⏳ Pending | Device discovery service |
-| M4 | ⏳ Pending | Dynamic brain election |
-| M5 | ⏳ Pending | Android client SDK |
-| M6 | ⏳ Pending | macOS client SDK |
+| M2 | ✅ Complete | WebSocket server with message relay |
+| M3 | ✅ Complete | Offline message queue |
+| M4 | ✅ Complete | System agents (DoozAgent) |
+| M5 | 🔄 In Progress | Sub-agent connection (infinite nesting) |
+| M6 | ⏳ Pending | Python client library |
 
 ---
 
@@ -158,3 +216,4 @@ xcodebuild -scheme dooz-client-macos
 - `business-domain.md` - Business vision and problem statement
 - `business-tech-bridge.md` - How business needs map to technical solutions
 - `decisions-log.md` - Full decision history
+- `projects/dooz.md` - Project context overview
