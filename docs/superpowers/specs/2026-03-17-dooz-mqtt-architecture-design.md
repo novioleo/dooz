@@ -46,11 +46,14 @@
 │  │ • MQTT Client (publish/subscribe)                          │ │
 │  └────────────────────────────────────────────────────────────┘ │
 │                                                                   │
+│  所有 Agent 都是 Daemon 拉起的独立进程，区别只是 role/权限         │
 │  ┌────────────────────────────────────────────────────────────┐ │
-│  │ System Agents (built-in, not in YAML)                      │ │
-│  │  • monitor-agent    → Track heartbeats                     │ │
-│  │  • dooz-agent       → Main AI agent                        │ │
-│  │  • task-scheduler   → Task distribution                    │ │
+│  │ Agents (按 role 区分)                                        │ │
+│  │  • monitor     → role: system (监控)                      │ │
+│  │  • dooz        → role: system (主 Agent)                  │ │
+│  │  • scheduler   → role: system (任务分发)                  │ │
+│  │  • light       → role: sub-agent (业务 Agent)             │ │
+│  │  • speaker     → role: sub-agent (业务 Agent)             │ │
 │  └────────────────────────────────────────────────────────────┘ │
 └─────────────────────────────────────────────────────────────────┘
                               │
@@ -65,14 +68,15 @@
          │                   │                   │
          ▼                   ▼                   ▼
 ┌─────────────────┐ ┌─────────────────┐ ┌─────────────────┐
-│ dooz/topic-A   │ │ dooz/topic-B   │ │ dooz/topic-N   │
-│ (main agent)   │ │ (sub-agent)    │ │ (sub-agent)    │
+│ dooz_1_1/      │ │ dooz_1_1/      │ │ dooz_1_1/      │
+│ agents/monitor │ │ agents/dooz    │ │ agents/light   │
+│ (role:system)  │ │ (role:system)  │ │ (role:sub)     │
 └─────────────────┘ └─────────────────┘ └─────────────────┘
 ```
 
 ### 1.3 Process Architecture
 
-```
+**核心概念：所有 Agent 都是平等的进程，只是角色(权限)不同**
 PID: 1xxx              PID: 2xxx           PID: 3xxx           PID: Nxxx
 ┌──────────┐           ┌──────────┐        ┌──────────┐        ┌──────────┐
 │   CLI    │◄───WS────►│  Daemon  │◄──MQTT─►│ Agent A  │◄──MQTT─►│ Agent N  │
@@ -167,12 +171,9 @@ daemon:
 definitions:
   directory: "./definitions"  # Dooz/Agent YAML 目录
   dooz:
-    - "home-dooz"
-    - "office-dooz"
-  system_agents:
-    - monitor
-    - dooz
-    - task-scheduler
+    - "dooz_1_1"            # 顶层 Dooz
+    - "dooz_1_2"            # 另一个顶层 Dooz
+  # role: system 的 Agent 是代码内置的，不需要在配置中定义
 
 monitor:
   heartbeat_interval: 10
@@ -186,30 +187,31 @@ monitor:
 - Daemon monitors agent health via Monitor Agent
 - Agents communicate via MQTT with dooz_id isolation
 
-### 2.3 System Agents
+### 2.3 Agent Roles
 
-**重要：** System Agents 不是全局共享的！每个 Dooz 实例都有自己独立的一套 System Agents。
+**核心概念：** 所有 Agent 都是平等的，区别只是 role 不同。System role 是内置的，sub-agent role 是业务定义的。
 
 ```
 ┌─────────────────────────────────────────────────────────┐
-│  Dooz: dooz_1_1 (顶层)                                  │
+│  Dooz: dooz_1_1                                        │
 │  ┌───────────────────────────────────────────────────┐  │
-│  │ System Agents (本 Dooz 独有)                       │  │
-│  │  • monitor-agent    → 只跟踪 dooz_1_1 内的 agents │  │
-│  │  • dooz-agent      → 主 Agent                     │  │
-│  │  • task-scheduler  → 只分发 dooz_1_1 内的任务    │  │
+│  │ role: system (内置)                               │  │
+│  │  • monitor     → 跟踪本 dooz 内 agents 心跳      │  │
+│  │  • dooz        → 主 Agent，处理用户请求           │  │
+│  │  • scheduler   → 任务分发                        │  │
 │  └───────────────────────────────────────────────────┘  │
 │  ┌───────────────────────────────────────────────────┐  │
-│  │ Sub Agents (本 Dooz 管理)                          │  │
-│  │  • agent-A, agent-B                               │  │
+│  │ role: sub-agent (业务定义，来自 YAML)             │  │
+│  │  • light       → 灯光控制                         │  │
+│  │  • speaker     → 音箱控制                         │  │
 │  └───────────────────────────────────────────────────┘  │
 │  ┌───────────────────────────────────────────────────┐  │
-│  │ 嵌套的 Dooz: dooz_2_1 (对上层透明)                │  │
+│  │ 嵌套的 Dooz: dooz_2_1                            │  │
 │  └───────────────────────────────────────────────────┘  │
 └─────────────────────────────────────────────────────────┘
 ```
 
-#### 2.3.1 Monitor Agent (per Dooz)
+#### 2.3.1 Monitor Agent (role: system)
 
 - **归属：** 属于特定的 Dooz (如 `dooz_1_1`)
 - **MQTT Topic：** `dooz/{dooz_id}/system/monitor`
@@ -271,17 +273,19 @@ monitor:
   - **不跨 Dooz** 分发任务
   - 若需执行嵌套 Dooz 的任务，通过嵌套 Dooz 的 Dooz Agent 协调
 
-### 2.4 Custom Agents (YAML-defined)
+### 2.4 Agent 定义 (YAML)
+
+**说明：** role: system 的 Agent 是内置的，不需要 YAML 定义。role: sub-agent 的 Agent 通过 YAML 文件定义。
 
 **Location:** `./definitions/agents/*.yaml`
 
 **Agent Definition (agent.yaml):**
 ```yaml
 agent:
-  id: "light-agent-001"
+  id: "light-agent"
   name: "客厅灯光控制"
   description: "控制客厅灯光开关和亮度"
-  role: "sub-agent"
+  role: "sub-agent"            # 业务 Agent
   capabilities:
     - light_on
     - light_off
@@ -298,8 +302,12 @@ agent:
     brand: "xiaomi"
 ```
 
-**Loading:**
-- Daemon scans `agents/` directory on startup
+**加载流程：**
+- Daemon 启动时扫描 `definitions/agents/` 目录
+- 加载所有 `.yaml` 文件
+- 根据 role 字段区分：
+  - `role: system` → 启动内置 Agent 进程
+  - `role: sub-agent` → 启动 YAML 定义的 Agent 进程
 - Loads all `.yaml` files
 - Spawns agent process for each
 
@@ -934,22 +942,24 @@ monitor:
    - WebSocket client
    - Basic command interface
 
-### Phase 2: System Agents
+### Phase 2: Core Agents (role: system)
 
-4. **Monitor Agent**
+> 这些是内置的 Agent，代码写死，随 Daemon 启动
+
+4. **Monitor Agent (role: system)**
    - Heartbeat reception
    - Online status tracking
    - Query interface
 
-5. **Task Scheduler Agent**
+5. **Task Scheduler Agent (role: system)**
    - Task distribution
    - Result aggregation
 
-6. **Dooz Agent**
+6. **Dooz Agent (role: system)**
    - LLM integration
    - Task creation
 
-### Phase 3: Custom Agents
+### Phase 3: Business Agents (role: sub-agent)
 
 7. **Agent YAML Loader**
    - Load from directory
