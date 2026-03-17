@@ -20,7 +20,7 @@
 | Daemon | Core | Manages agent processes, handles WebSocket connections, routes messages |
 | Clarification Agent | Built-in (CLI) | Interactive multi-turn chatbot to clarify user requirements |
 | Monitor Agent | System Agent | Receives heartbeats, tracks online agent status |
-| Dooz Agent | System Agent | Main AI agent for task execution |
+| Orchestrator Agent | System Agent | Main AI agent for task execution |
 | Task Scheduler Agent | System Agent | Distributes tasks to sub-agents |
 | Custom Agents | YAML-loaded | User-defined agents loaded from YAML files |
 | MQTT Broker | Infrastructure | NanoMQ for inter-agent message routing |
@@ -197,7 +197,7 @@ monitor:
 │  ┌───────────────────────────────────────────────────┐  │
 │  │ role: system (内置)                               │  │
 │  │  • monitor     → 跟踪本 dooz 内 agents 心跳      │  │
-│  │  • dooz        → 主 Agent，处理用户请求           │  │
+│  │  • orchestrator → 主 Agent，处理用户请求         │  │
 │  │  • scheduler   → 任务分发                        │  │
 │  └───────────────────────────────────────────────────┘  │
 │  ┌───────────────────────────────────────────────────┐  │
@@ -218,7 +218,7 @@ monitor:
 - **职责：** 
   - 只跟踪**当前 Dooz 内的** sub-agents 心跳
   - **不跨 Dooz** - dooz_1_1 的 Monitor 不知道 dooz_2_1 的 agents
-  - 应答 Dooz Agent 的查询请求
+  - 应答 Orchestrator Agent 的查询请求
 
 **Heartbeat (Agent → Monitor)：**
 ```json
@@ -231,7 +231,7 @@ monitor:
 }
 ```
 
-**查询响应 (Monitor → Dooz Agent)：**
+**查询响应 (Monitor → Orchestrator Agent)：**
 ```json
 {
     "type": "agent_list",
@@ -244,18 +244,18 @@ monitor:
 }
 ```
 
-#### 2.3.2 Dooz Agent (per Dooz)
+#### 2.3.2 Orchestrator Agent
 
 - **归属：** 属于特定的 Dooz
-- **MQTT Topic：** `dooz/{dooz_id}/system/dooz`
+- **MQTT Topic：** `dooz/{dooz_id}/system/orchestrator`
 - **职责：**
   - 处理用户请求
   - 查询 Monitor 获取当前 Dooz 内的可用 agents
-  - 若需访问嵌套 Dooz 的 agents，通过嵌套 Dooz 的 System Agents 通信
+  - 若需访问嵌套 Dooz 的 agents，通过嵌套 Dooz 的 Orchestrator Agent 通信
 
 **查询嵌套 Dooz 的 Agents：**
 ```
-# dooz_1_1 的 Dooz Agent 要查询 dooz_2_1 内的 agents
+# dooz_1_1 的 Orchestrator Agent 要查询 dooz_2_1 内的 agents
 # 发布到: dooz/dooz_2_1/system/monitor (嵌套 Dooz 的 Monitor)
 {
     "type": "query_agents",
@@ -271,7 +271,7 @@ monitor:
 - **职责：**
   - 只分发任务到**当前 Dooz 内的** agents
   - **不跨 Dooz** 分发任务
-  - 若需执行嵌套 Dooz 的任务，通过嵌套 Dooz 的 Dooz Agent 协调
+  - 若需执行嵌套 Dooz 的任务，通过嵌套 Dooz 的 Orchestrator Agent 协调
 
 ### 2.4 Agent 定义 (YAML)
 
@@ -371,20 +371,20 @@ Dooz Group (dooz_1_1 - 顶层)
 
 **嵌套 Dooz 通信规则：**
 - 嵌套 Dooz 的 Sub Agents **不直接响应**上层 Dooz 的任务
-- 必须通过嵌套 Dooz 的 **Dooz Agent** 转发
+- 必须通过嵌套 Dooz 的 **Orchestrator Agent** 转发
 - 上层 Dooz 无法直接访问嵌套 Dooz 的 agents
 
 **正确流程：**
 ```
 # dooz_1_1 要执行 dooz_2_1 内的任务
-1. dooz_1_1 的 Dooz Agent → 发布到 dooz/dooz_2_1/system/dooz
+1. dooz_1_1 的 Orchestrator Agent → 发布到 dooz/dooz_2_1/system/orchestrator
    {"type": "delegate_task", "goal": "关闭摄像头", "from_dooz": "dooz_1_1"}
 
-2. dooz_2_1 的 Dooz Agent 收到 → 转发给 task-scheduler
+2. dooz_2_1 的 Orchestrator Agent 收到 → 转发给 task-scheduler
 
 3. dooz_2_1 的 task-scheduler → 分发给 dooz_2_1 内的 agents
 
-4. 结果返回 → dooz_2_1 的 Dooz Agent → 返回给 dooz_1_1 的 Dooz Agent
+4. 结果返回 → dooz_2_1 的 Orchestrator Agent → 返回给 dooz_1_1 的 Orchestrator Agent
 ```
 
 **错误流程（不允许）：**
@@ -393,12 +393,12 @@ Dooz Group (dooz_1_1 - 顶层)
    (不允许！跨 Dooz 直接分发任务)
 ```
 
-**示例 - 通过嵌套 Dooz 的 Dooz Agent：**
+**示例 - 通过嵌套 Dooz 的 Orchestrator Agent：**
 ```
-# 正确：委托给嵌套 Dooz 的 Dooz Agent
+# 正确：委托给嵌套 Dooz 的 Orchestrator Agent
 sub_task: { agent_id: "dooz_2_1", goal: "关闭摄像头" }
-  → 发布到 dooz/dooz_2_1/system/dooz
-  → dooz_2_1 的 Dooz Agent 处理内部转发
+  → 发布到 dooz/dooz_2_1/system/orchestrator
+  → dooz_2_1 的 Orchestrator Agent 处理内部转发
 ```
 
 **交互规则：**
@@ -411,9 +411,10 @@ sub_task: { agent_id: "dooz_2_1", goal: "关闭摄像头" }
 | Topic | Publisher | Subscriber | Description |
 |-------|-----------|-------------|-------------|
 | `dooz/{dooz_id}/system/monitor` | All Agents (in this dooz) | Monitor Agent | Heartbeats |
-| `dooz/{dooz_id}/system/monitor/response/{request_id}` | Monitor Agent | Dooz Agent | Query response |
-| `dooz/{dooz_id}/system/dooz` | CLI/Daemon | Dooz Agent | User requests |
-| `dooz/{dooz_id}/system/scheduler` | Dooz Agent | Task Scheduler | Task submission |
+| `dooz/{dooz_id}/system/monitor/response/{request_id}` | Monitor Agent | Orchestrator Agent | Query response |
+| `dooz/{dooz_id}/system/orchestrator` | CLI/Daemon | Orchestrator Agent | User requests |
+| `dooz/{dooz_id}/system/orchestrator` | Orchestrator Agent | Task Scheduler | Task submission |
+| `dooz/{dooz_id}/system/scheduler` | Orchestrator Agent | Task Scheduler | Task submission |
 | `dooz/{dooz_id}/tasks/{agent_id}` | Task Scheduler | Sub Agent | Task execution |
 | `dooz/{dooz_id}/results/{task_id}` | Sub Agent | Task Scheduler | Results |
 
@@ -502,7 +503,7 @@ class DoozDefinition(BaseModel):
     )
     nested_dooz: list[str] = Field(
         default_factory=list,
-        description="嵌套的 dooz_id 列表，通过这些 dooz 的 Dooz Agent 转发任务（不直接访问其 agents）"
+        description="嵌套的 dooz_id 列表，通过这些 dooz 的 Orchestrator Agent 转发任务（不直接访问其 agents）"
     )
     capabilities: list[str] = Field(default_factory=list)
     skills: list[Skill] = Field(default_factory=list)
@@ -736,7 +737,7 @@ Examples:
 **Error Handling:**
 - LLM fails: Fall back to rule-based parsing
 - User disconnects: Session cleanup after 60s
-- Intent still unclear after max turns: Send with `confidence: low`, let Dooz Agent handle ambiguity
+- Intent still unclear after max turns: Send with `confidence: low`, let Orchestrator Agent handle ambiguity
 
 **Failure Handling:**
 - If clarification fails after max turns → send what we have with `confidence: low`
@@ -819,7 +820,7 @@ dooz/
 │   │   ├── __init__.py
 │   │   ├── base.py          # Base agent class
 │   │   ├── monitor.py       # Monitor Agent
-│   │   ├── dooz.py          # Dooz Agent
+│   │   ├── orchestrator.py  # Orchestrator Agent
 │   │   └── scheduler.py     # Task Scheduler
 │   │
 │   ├── definitions/          # Dooz/Agent YAML definitions
@@ -838,7 +839,7 @@ dooz/
 │       ├── specs/
 │       └── plans/
 │
-└── prompts/                  # Prompt files for Dooz Agent
+└── prompts/                  # Prompt files for Orchestrator Agent
     ├── 00_system_role.md
     ├── 10_available_agents.md
     └── 20_task_template.md
@@ -955,7 +956,7 @@ monitor:
    - Task distribution
    - Result aggregation
 
-6. **Dooz Agent (role: system)**
+6. **Orchestrator Agent (role: system)**
    - LLM integration
    - Task creation
 
@@ -995,7 +996,7 @@ monitor:
 - [ ] Daemon starts and listens on WebSocket port
 - [ ] CLI connects to Daemon via WebSocket
 - [ ] Monitor Agent tracks agent heartbeats
-- [ ] Dooz Agent can query available sub-agents
+- [ ] Orchestrator Agent can query available sub-agents
 - [ ] Task Scheduler distributes tasks to sub-agents
 - [ ] Custom agents load from YAML files
 - [ ] Clarification Agent performs multi-turn chat
