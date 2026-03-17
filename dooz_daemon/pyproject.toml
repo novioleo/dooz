@@ -23,5 +23,8 @@ dev = [
 requires = ["hatchling"]
 build-backend = "hatchling.build"
 
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+
 [tool.hatchling.build.targets.wheel]
 packages = ["src/dooz_daemon"]
