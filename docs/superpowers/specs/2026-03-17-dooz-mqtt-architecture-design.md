@@ -100,6 +100,7 @@ PID: 1xxx              PID: 2xxx           PID: 3xxx           PID: Nxxx
 - Built-in Clarification Agent (non-MQ)
 - Interactive multi-turn chat to clarify requirements
 - Display results to user
+- **只与顶层 Dooz 交互**（通过 dooz_id 指定）
 
 **Connection:**
 ```bash
@@ -111,6 +112,7 @@ WS ws://localhost:8765/cli
 ```json
 {
     "type": "user_message",
+    "dooz_id": "my-home-dooz",  // 目标 Dooz
     "content": "播放音乐",
     "session_id": "uuid"
 }
@@ -119,6 +121,7 @@ WS ws://localhost:8765/cli
 ```json
 {
     "type": "clarified_request",
+    "dooz_id": "my-home-dooz",  // 目标 Dooz
     "session_id": "uuid",
     "clarified_goal": "用户想听舒缓的轻音乐",
     "original_request": "播放音乐"
@@ -136,13 +139,14 @@ WS ws://localhost:8765/cli
 
 ### 2.2 Daemon (守护进程)
 
-**Responsibility:** Central hub for agent management and message routing.
+**Responsibility:** Central hub for agent management and message routing. Supports multiple Dooz instances simultaneously.
 
 **Features:**
 - WebSocket server for CLI connections
-- Agent process lifecycle management (spawn/kill)
+- Agent/Dooz process lifecycle management (spawn/kill)
 - MQTT client for inter-agent communication
 - Message routing between CLI, MQTT, and agents
+- **根据消息中的 dooz_id 路由到对应的 Dooz**
 
 **Startup:**
 ```bash
@@ -160,19 +164,27 @@ daemon:
     port: 1883
     client_id: "daemon"
 
-agents:
-  directory: "./agents"  # YAML files directory
-  system:
+definitions:
+  directory: "./definitions"  # Dooz/Agent YAML 目录
+  dooz:
+    - "home-dooz"
+    - "office-dooz"
+  system_agents:
     - monitor
     - dooz
     - task-scheduler
+
+monitor:
+  heartbeat_interval: 10
+  offline_threshold: 30
 ```
 
-**Agent Process Management:**
-- Agents run as separate processes
-- Daemon spawns agents on startup
-- Daemon monitors agent health
-- Agents communicate via MQTT
+**Agent/Dooz Process Management:**
+- 每个 Dooz 作为独立的进程组运行
+- Agents run as separate processes within their Dooz namespace
+- Daemon spawns Dooz and agent processes on startup
+- Daemon monitors agent health via Monitor Agent
+- Agents communicate via MQTT with dooz_id isolation
 
 ### 2.3 System Agents
 
@@ -180,13 +192,14 @@ agents:
 
 #### 2.3.1 Monitor Agent
 
-- **Purpose:** Track online sub-agents via heartbeat
+- **Purpose:** Track online sub-agents via heartbeat (per Dooz)
 - **Device ID:** `monitor-agent`
-- **MQTT Topic:** `dooz/system/monitor`
+- **MQTT Topic:** `dooz/{dooz_id}/system/monitor`
 - **Heartbeat Format:**
 ```json
 {
     "type": "heartbeat",
+    "dooz_id": "dooz_1_1",
     "agent_id": "light-agent-001",
     "timestamp": 1234567890,
     "status": "online"
@@ -199,23 +212,23 @@ agents:
 
 - **Purpose:** Main AI agent for task execution
 - **Device ID:** `dooz-agent`
-- **MQTT Topic:** `dooz/system/dooz`
+- **MQTT Topic:** `dooz/{dooz_id}/system/dooz`
 - **Features:**
   - Uses LLM for task understanding
   - Creates tasks for Task Scheduler
   - Blocks waiting for results
-  - Queries Monitor Agent for available sub-agents
+  - Queries Monitor Agent for available sub-agents (包括嵌套 dooz 的 agents)
 
 **Query Protocol (Dooz → Monitor):**
 ```json
-// Publish to: dooz/system/monitor
+// Publish to: dooz/{dooz_id}/system/monitor
 {
     "type": "query_agents",
     "request_id": "uuid",
     "capabilities": ["light_control"]  // Optional filter
 }
 
-// Subscribe to: dooz/system/monitor/response/{request_id}
+// Subscribe to: dooz/{dooz_id}/system/monitor/response/{request_id}
 {
     "type": "agent_list",
     "request_id": "uuid",
@@ -228,17 +241,24 @@ agents:
 
 #### 2.3.3 Task Scheduler Agent
 
-- **Purpose:** Distribute tasks to sub-agents in parallel
+- **Purpose:** Distribute tasks to sub-agents in parallel (including nested dooz agents)
 - **Device ID:** `task-scheduler`
-- **MQTT Topic:** `dooz/system/scheduler`
+- **MQTT Topic:** `dooz/{dooz_id}/system/scheduler`
 - **Features:**
   - Receives task structure from Dooz Agent
+  - Resolves agent_id to target MQTT topic (本 dooz 或嵌套 dooz)
   - Distributes sub-tasks to target agents
   - Aggregates results
 
+**Agent ID 解析机制：**
+```
+agent_id: "light-agent" → dooz_1_1/tasks/light-agent (本 dooz)
+agent_id: "nested-dooz/agent-C1" → dooz_2_3/tasks/agent-C1 (嵌套 dooz)
+```
+
 ### 2.4 Custom Agents (YAML-defined)
 
-**Location:** `./agents/*.yaml`
+**Location:** `./definitions/agents/*.yaml`
 
 **Agent Definition (agent.yaml):**
 ```yaml
@@ -255,9 +275,9 @@ agent:
     - name: "light_control"
       description: "控制灯光开关和亮度"
   mqtt:
-    topic: "dooz/agents/light-001"
+    topic: "light-001"           # 完整: dooz/{dooz_id}/agents/light-001
     subscribe:
-      - "dooz/tasks/light-001"
+      - "tasks/light-001"       # 完整: dooz/{dooz_id}/tasks/light-001
   config:
     device_type: "smart_light"
     brand: "xiaomi"
@@ -272,37 +292,85 @@ agent:
 
 ## 3. MQTT Topic Structure
 
-### 3.1 Topic Hierarchy
+### 3.1 Topic Hierarchy (Multi-Dooz Support)
+
+**Dooz ID 格式：** `{level}_{index}`，例如：
+- `dooz_1_1` - 第一层第一个 Dooz (顶层)
+- `dooz_2_3` - 第二层第三个 Dooz (嵌套)
+- `dooz_3_2` - 第三层第二个 Dooz
 
 ```
 dooz/
-├── system/
-│   ├── monitor        # Monitor Agent
-│   ├── dooz           # Dooz Agent
-│   └── scheduler      # Task Scheduler
-├── agents/
-│   ├── light-001      # Custom Agent 1
-│   ├── speaker-001    # Custom Agent 2
-│   └── ...
-├── tasks/
-│   ├── light-001      # Tasks for Agent 1
-│   ├── speaker-001    # Tasks for Agent 2
-│   └── ...
-└── results/
-    ├── light-001      # Results from Agent 1
-    └── ...
+├── dooz_1_1/           # 顶层 Dooz (CLI 直接交互)
+│   ├── system/
+│   │   ├── monitor    # Monitor Agent
+│   │   ├── dooz       # 该 Dooz 的主 Agent
+│   │   └── scheduler  # Task Scheduler
+│   ├── agents/
+│   │   ├── agent-A
+│   │   └── ...
+│   ├── tasks/
+│   │   └── {agent_id}
+│   └── results/
+│       └── {task_id}
+│
+├── dooz_2_3/           # 第二层第三个 Dooz (嵌套)
+│   ├── system/
+│   ├── agents/
+│   ├── tasks/
+│   └── results/
 ```
 
-### 3.2 Message Types
+**说明：**
+- `{dooz_id}` 隔离不同的 Dooz 实例
+- 同一个 MQTT broker 可以运行多个 Dooz (通过 dooz_id 区分)
+- 每个 Dooz 有自己独立的 agent 命名空间
+
+### 3.2 Dooz Group 嵌套
+
+```
+Dooz Group (dooz_1_1 - 顶层)
+│
+├── 包含的 sub-agent: agent-A, agent-B
+│
+└── 嵌套的 dooz: dooz_2_1
+                      │
+                      ├── sub-agent: agent-C1, agent-C2
+                      │
+                      └── 嵌套的 dooz: dooz_3_1
+                              └── sub-agent: agent-C1-1
+```
+
+**嵌套路由规则：**
+- `agent_id` 格式支持嵌套路径：`agent_id: "dooz_2_1/agent-C1"`
+- Task Scheduler 解析 `agent_id` 中的 dooz 前缀，路由到对应的 MQTT topic
+- 如果 agent_id 不包含 dooz 前缀，则默认使用当前 dooz
+
+**示例：**
+```
+# 在 dooz_1_1 中分发任务
+sub_task: { agent_id: "agent-A", goal: "打开灯光" }
+  → 路由到 dooz_1_1/tasks/agent-A
+
+sub_task: { agent_id: "dooz_2_1/agent-C1", goal: "关闭摄像头" }
+  → 路由到 dooz_2_1/tasks/agent-C1
+```
+
+**交互规则：**
+- CLI 只与**顶层 Dooz** (`dooz_1_x`) 交互
+- 顶层 Dooz 的 Task Scheduler 负责解析 agent_id 并路由到正确的 dooz
+- 嵌套的 Dooz 对 CLI 不可见（透明）
+
+### 3.3 Message Types
 
 | Topic | Publisher | Subscriber | Description |
 |-------|-----------|-------------|-------------|
-| `dooz/system/monitor` | All Agents | Monitor Agent | Heartbeats |
-| `dooz/system/monitor/response/{request_id}` | Monitor Agent | Dooz Agent | Query response |
-| `dooz/system/dooz` | CLI/Daemon | Dooz Agent | User requests |
-| `dooz/system/scheduler` | Dooz Agent | Task Scheduler | Task submission |
-| `dooz/tasks/{agent_id}` | Task Scheduler | Sub Agent | Task execution |
-| `dooz/results/{task_id}` | Sub Agent | Task Scheduler | Results |
+| `dooz/{dooz_id}/system/monitor` | All Agents (in this dooz) | Monitor Agent | Heartbeats |
+| `dooz/{dooz_id}/system/monitor/response/{request_id}` | Monitor Agent | Dooz Agent | Query response |
+| `dooz/{dooz_id}/system/dooz` | CLI/Daemon | Dooz Agent | User requests |
+| `dooz/{dooz_id}/system/scheduler` | Dooz Agent | Task Scheduler | Task submission |
+| `dooz/{dooz_id}/tasks/{agent_id}` | Task Scheduler | Sub Agent | Task execution |
+| `dooz/{dooz_id}/results/{task_id}` | Sub Agent | Task Scheduler | Results |
 
 ---
 
@@ -368,14 +436,29 @@ ws://localhost:8765/cli
 
 ## 5. Data Structures
 
-### 5.1 Agent Definition (YAML Schema)
+### 5.1 Dooz Definition (YAML Schema)
 
 ```python
-class AgentDefinition(BaseModel):
-    agent_id: str = Field(..., description="Unique agent identifier")
-    name: str = Field(..., description="Human-readable name")
-    description: str = Field(default="", description="Agent description")
-    role: Literal["sub-agent"] = Field(default="sub-agent", description="Only custom agents use this field (system agents are hardcoded)")
+class DoozDefinition(BaseModel):
+    """Dooz 顶层配置 - 每个 dooz.yaml 定义一个 Dooz"""
+    dooz_id: str = Field(
+        ...,
+        description="唯一标识符，格式: dooz_{level}_{index}，例如 dooz_1_1 (顶层), dooz_2_3 (第二层第三个)"
+    )
+    name: str = Field(..., description="人类可读名称")
+    description: str = Field(default="", description="Dooz 描述")
+    role: Literal["dooz", "dooz-group"] = Field(
+        default="dooz",
+        description="dooz: 单一 dooz; dooz-group: 包含嵌套 dooz 的组"
+    )
+    agents: list[str] = Field(
+        default_factory=list,
+        description="引用的 agent_id 列表 (来自同目录下的 agent yaml)"
+    )
+    nested_dooz: list[str] = Field(
+        default_factory=list,
+        description="嵌套的 dooz_id 列表"
+    )
     capabilities: list[str] = Field(default_factory=list)
     skills: list[Skill] = Field(default_factory=list)
     mqtt: MqttConfig
@@ -386,30 +469,52 @@ class Skill(BaseModel):
     description: str
 
 class MqttConfig(BaseModel):
-    topic: str
+    topic_prefix: str = Field(
+        default="dooz/{dooz_id}",
+        description="MQTT topic 前缀，自动包含 dooz_id"
+    )
+```
+
+### 5.2 Agent Definition (YAML Schema)
+
+```python
+class AgentDefinition(BaseModel):
+    """Agent 配置 - 每个 agent.yaml 定义一个 Agent"""
+    agent_id: str = Field(..., description="唯一标识符")
+    name: str = Field(..., description="人类可读名称")
+    description: str = Field(default="", description="Agent 描述")
+    role: Literal["sub-agent"] = Field(default="sub-agent")
+    capabilities: list[str] = Field(default_factory=list)
+    skills: list[Skill] = Field(default_factory=list)
+    mqtt: MqttConfig
+    config: dict = Field(default_factory=dict)
+
+class MqttConfig(BaseModel):
+    topic: str  # 相对于 dooz/{dooz_id}/agents/
     subscribe: list[str] = Field(default_factory=list)
     publish: list[str] = Field(default_factory=list)
 ```
 
-### 5.2 Task Structure
+### 5.3 Task Structure
 
 ```python
 class Task(BaseModel):
     task_id: str = Field(default_factory=lambda: uuid4().hex)
     session_id: str
+    dooz_id: str  # 目标 Dooz
     goal: str
     sub_tasks: list[SubTask] = Field(default_factory=list)
     created_at: float = Field(default_factory=time.time)
 
 class SubTask(BaseModel):
     sub_task_id: str
-    agent_id: str
+    agent_id: str  # 目标 Agent (可以是本 dooz 的，也可以是嵌套 dooz 的)
     goal: str
     parameters: dict = Field(default_factory=dict)
     timeout: int = Field(default=30)
 ```
 
-### 5.3 Task Result
+### 5.4 Task Result
 
 ```python
 class SubTaskResult(BaseModel):
@@ -422,6 +527,7 @@ class SubTaskResult(BaseModel):
 class TaskResult(BaseModel):
     task_id: str
     session_id: str
+    dooz_id: str
     status: Literal["completed", "failed", "partial"]
     sub_results: list[SubTaskResult]
 ```
@@ -519,16 +625,16 @@ SIGTERM/SIGINT →
 ### 7.2 Heartbeat Interval
 
 - Default: **10 seconds**
-- Agent sends heartbeat to `dooz/system/monitor`
+- Agent sends heartbeat to `dooz/{dooz_id}/system/monitor`
 - Monitor tracks last_seen timestamp
 - Agent not heard from for **30 seconds** → marked as offline
 
 ### 7.3 Task Execution
 
-- Agent subscribes to `dooz/tasks/{agent_id}`
+- Agent subscribes to `dooz/{dooz_id}/tasks/{agent_id}`
 - Receives task JSON
 - Executes task (sync or async)
-- Publishes result to `dooz/results/{task_id}`
+- Publishes result to `dooz/{dooz_id}/results/{task_id}`
 
 **Task Message Format (Sub-Agent receives):**
 ```json
@@ -671,9 +777,13 @@ dooz/
 │   │   ├── dooz.py          # Dooz Agent
 │   │   └── scheduler.py     # Task Scheduler
 │   │
-│   ├── agents/               # Agent templates (YAML examples)
-│   │   └── example/
-│   │       └── light-agent.yaml
+│   ├── definitions/          # Dooz/Agent YAML definitions
+│   │   ├── dooz/
+│   │   │   ├── home-dooz.yaml      # Dooz 定义
+│   │   │   └── office-dooz.yaml   # 另一个 Dooz
+│   │   └── agents/
+│   │       ├── light-agent.yaml   # Agent 定义
+│   │       └── speaker-agent.yaml
 │   │
 │   ├── tests/
 │   └── pyproject.toml
@@ -689,7 +799,55 @@ dooz/
     └── 20_task_template.md
 ```
 
-### 9.2 Configuration Files
+### 9.2 Dooz/Agent YAML 示例
+
+**dooz.yaml (Dooz 定义):**
+```yaml
+dooz:
+  dooz_id: "dooz_1_1"        # 第一层第一个 Dooz (顶层)
+  name: "智能家居"
+  description: "控制家中智能设备"
+  role: "dooz-group"          # 或 "dooz"
+  agents:
+    - light-agent
+    - speaker-agent
+  nested_dooz:
+    - dooz_2_1               # 嵌套第二层第一个 Dooz
+  capabilities:
+    - smart_home_control
+  skills:
+    - name: "device_control"
+      description: "控制智能家居设备"
+  mqtt:
+    topic_prefix: "dooz/dooz_1_1"
+  config:
+    auto_discover: true
+```
+
+**agent.yaml (Agent 定义):**
+```yaml
+agent:
+  agent_id: "light-agent"
+  name: "灯光控制"
+  description: "控制家中灯光"
+  role: "sub-agent"
+  capabilities:
+    - light_on
+    - light_off
+    - light_brightness
+  skills:
+    - name: "light_control"
+      description: "控制灯光开关和亮度"
+  mqtt:
+    topic: "light-control"   # 完整: dooz/dooz_1_1/agents/light-control
+    subscribe:
+      - "tasks/light-agent"
+  config:
+    device_type: "smart_light"
+    brand: "xiaomi"
+```
+
+### 9.3 Configuration Files
 
 **config.yaml (Daemon):**
 ```yaml
