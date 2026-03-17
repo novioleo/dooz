@@ -188,73 +188,88 @@ monitor:
 
 ### 2.3 System Agents
 
-**Note:** System agents are built-in, NOT loaded from YAML files.
+**重要：** System Agents 不是全局共享的！每个 Dooz 实例都有自己独立的一套 System Agents。
 
-#### 2.3.1 Monitor Agent
+```
+┌─────────────────────────────────────────────────────────┐
+│  Dooz: dooz_1_1 (顶层)                                  │
+│  ┌───────────────────────────────────────────────────┐  │
+│  │ System Agents (本 Dooz 独有)                       │  │
+│  │  • monitor-agent    → 只跟踪 dooz_1_1 内的 agents │  │
+│  │  • dooz-agent      → 主 Agent                     │  │
+│  │  • task-scheduler  → 只分发 dooz_1_1 内的任务    │  │
+│  └───────────────────────────────────────────────────┘  │
+│  ┌───────────────────────────────────────────────────┐  │
+│  │ Sub Agents (本 Dooz 管理)                          │  │
+│  │  • agent-A, agent-B                               │  │
+│  └───────────────────────────────────────────────────┘  │
+│  ┌───────────────────────────────────────────────────┐  │
+│  │ 嵌套的 Dooz: dooz_2_1 (对上层透明)                │  │
+│  └───────────────────────────────────────────────────┘  │
+└─────────────────────────────────────────────────────────┘
+```
 
-- **Purpose:** Track online sub-agents via heartbeat (per Dooz)
-- **Device ID:** `monitor-agent`
-- **MQTT Topic:** `dooz/{dooz_id}/system/monitor`
-- **Heartbeat Format:**
+#### 2.3.1 Monitor Agent (per Dooz)
+
+- **归属：** 属于特定的 Dooz (如 `dooz_1_1`)
+- **MQTT Topic：** `dooz/{dooz_id}/system/monitor`
+- **职责：** 
+  - 只跟踪**当前 Dooz 内的** sub-agents 心跳
+  - **不跨 Dooz** - dooz_1_1 的 Monitor 不知道 dooz_2_1 的 agents
+  - 应答 Dooz Agent 的查询请求
+
+**Heartbeat (Agent → Monitor)：**
 ```json
 {
     "type": "heartbeat",
-    "dooz_id": "dooz_1_1",
-    "agent_id": "light-agent-001",
+    "dooz_id": "dooz_1_1",          // Agent 所属的 Dooz
+    "agent_id": "light-agent",
     "timestamp": 1234567890,
     "status": "online"
 }
 ```
-- **State Storage:** In-memory dict (can be extended to Redis/file)
-- **Query Interface:** Responds to discovery requests from Dooz Agent
 
-#### 2.3.2 Dooz Agent
-
-- **Purpose:** Main AI agent for task execution
-- **Device ID:** `dooz-agent`
-- **MQTT Topic:** `dooz/{dooz_id}/system/dooz`
-- **Features:**
-  - Uses LLM for task understanding
-  - Creates tasks for Task Scheduler
-  - Blocks waiting for results
-  - Queries Monitor Agent for available sub-agents (包括嵌套 dooz 的 agents)
-
-**Query Protocol (Dooz → Monitor):**
+**查询响应 (Monitor → Dooz Agent)：**
 ```json
-// Publish to: dooz/{dooz_id}/system/monitor
-{
-    "type": "query_agents",
-    "request_id": "uuid",
-    "capabilities": ["light_control"]  // Optional filter
-}
-
-// Subscribe to: dooz/{dooz_id}/system/monitor/response/{request_id}
 {
     "type": "agent_list",
     "request_id": "uuid",
+    "dooz_id": "dooz_1_1",
     "agents": [
-        {"agent_id": "light-agent-001", "name": "客厅灯光", "capabilities": ["light_on", "light_off"]},
-        {"agent_id": "speaker-agent-001", "name": "客厅音箱", "capabilities": ["play_music"]}
+        {"agent_id": "light-agent", "name": "客厅灯光", "capabilities": ["light_on", "light_off"]},
+        {"agent_id": "speaker-agent", "name": "客厅音箱", "capabilities": ["play_music"]}
     ]
 }
 ```
 
-#### 2.3.3 Task Scheduler Agent
+#### 2.3.2 Dooz Agent (per Dooz)
 
-- **Purpose:** Distribute tasks to sub-agents in parallel (including nested dooz agents)
-- **Device ID:** `task-scheduler`
-- **MQTT Topic:** `dooz/{dooz_id}/system/scheduler`
-- **Features:**
-  - Receives task structure from Dooz Agent
-  - Resolves agent_id to target MQTT topic (本 dooz 或嵌套 dooz)
-  - Distributes sub-tasks to target agents
-  - Aggregates results
+- **归属：** 属于特定的 Dooz
+- **MQTT Topic：** `dooz/{dooz_id}/system/dooz`
+- **职责：**
+  - 处理用户请求
+  - 查询 Monitor 获取当前 Dooz 内的可用 agents
+  - 若需访问嵌套 Dooz 的 agents，通过嵌套 Dooz 的 System Agents 通信
 
-**Agent ID 解析机制：**
+**查询嵌套 Dooz 的 Agents：**
 ```
-agent_id: "light-agent" → dooz_1_1/tasks/light-agent (本 dooz)
-agent_id: "nested-dooz/agent-C1" → dooz_2_3/tasks/agent-C1 (嵌套 dooz)
+# dooz_1_1 的 Dooz Agent 要查询 dooz_2_1 内的 agents
+# 发布到: dooz/dooz_2_1/system/monitor (嵌套 Dooz 的 Monitor)
+{
+    "type": "query_agents",
+    "request_id": "uuid",
+    "from_dooz": "dooz_1_1"
+}
 ```
+
+#### 2.3.3 Task Scheduler Agent (per Dooz)
+
+- **归属：** 属于特定的 Dooz
+- **MQTT Topic：** `dooz/{dooz_id}/system/scheduler`
+- **职责：**
+  - 只分发任务到**当前 Dooz 内的** agents
+  - **不跨 Dooz** 分发任务
+  - 若需执行嵌套 Dooz 的任务，通过嵌套 Dooz 的 Dooz Agent 协调
 
 ### 2.4 Custom Agents (YAML-defined)
 
@@ -332,34 +347,56 @@ dooz/
 Dooz Group (dooz_1_1 - 顶层)
 │
 ├── 包含的 sub-agent: agent-A, agent-B
+│   └── 由 dooz_1_1 的 System Agents 管理
 │
 └── 嵌套的 dooz: dooz_2_1
-                      │
-                      ├── sub-agent: agent-C1, agent-C2
-                      │
-                      └── 嵌套的 dooz: dooz_3_1
-                              └── sub-agent: agent-C1-1
+    │
+    ├── sub-agent: agent-C1, agent-C2
+    │   └── 由 dooz_2_1 的 System Agents 管理
+    │
+    └── 嵌套的 dooz: dooz_3_1
+        └── sub-agent: agent-C1-1
+            └── 由 dooz_3_1 的 System Agents 管理
 ```
 
-**嵌套路由规则：**
-- `agent_id` 格式支持嵌套路径：`agent_id: "dooz_2_1/agent-C1"`
-- Task Scheduler 解析 `agent_id` 中的 dooz 前缀，路由到对应的 MQTT topic
-- 如果 agent_id 不包含 dooz 前缀，则默认使用当前 dooz
+**核心原则：每个 Dooz 只管理自己范围内的资源，不能越界！**
 
-**示例：**
+**嵌套 Dooz 通信规则：**
+- 嵌套 Dooz 的 Sub Agents **不直接响应**上层 Dooz 的任务
+- 必须通过嵌套 Dooz 的 **Dooz Agent** 转发
+- 上层 Dooz 无法直接访问嵌套 Dooz 的 agents
+
+**正确流程：**
 ```
-# 在 dooz_1_1 中分发任务
-sub_task: { agent_id: "agent-A", goal: "打开灯光" }
-  → 路由到 dooz_1_1/tasks/agent-A
+# dooz_1_1 要执行 dooz_2_1 内的任务
+1. dooz_1_1 的 Dooz Agent → 发布到 dooz/dooz_2_1/system/dooz
+   {"type": "delegate_task", "goal": "关闭摄像头", "from_dooz": "dooz_1_1"}
 
-sub_task: { agent_id: "dooz_2_1/agent-C1", goal: "关闭摄像头" }
-  → 路由到 dooz_2_1/tasks/agent-C1
+2. dooz_2_1 的 Dooz Agent 收到 → 转发给 task-scheduler
+
+3. dooz_2_1 的 task-scheduler → 分发给 dooz_2_1 内的 agents
+
+4. 结果返回 → dooz_2_1 的 Dooz Agent → 返回给 dooz_1_1 的 Dooz Agent
+```
+
+**错误流程（不允许）：**
+```
+❌ dooz_1_1 的 task-scheduler → 直接发布到 dooz/dooz_2_1/tasks/agent-C1
+   (不允许！跨 Dooz 直接分发任务)
+```
+
+**示例 - 通过嵌套 Dooz 的 Dooz Agent：**
+```
+# 正确：委托给嵌套 Dooz 的 Dooz Agent
+sub_task: { agent_id: "dooz_2_1", goal: "关闭摄像头" }
+  → 发布到 dooz/dooz_2_1/system/dooz
+  → dooz_2_1 的 Dooz Agent 处理内部转发
 ```
 
 **交互规则：**
 - CLI 只与**顶层 Dooz** (`dooz_1_x`) 交互
-- 顶层 Dooz 的 Task Scheduler 负责解析 agent_id 并路由到正确的 dooz
-- 嵌套的 Dooz 对 CLI 不可见（透明）
+- 嵌套 Dooz 对 CLI 不可见（透明）
+- 嵌套通信必须通过嵌套 Dooz 的 System Agents
 
 ### 3.3 Message Types
 
@@ -457,7 +494,7 @@ class DoozDefinition(BaseModel):
     )
     nested_dooz: list[str] = Field(
         default_factory=list,
-        description="嵌套的 dooz_id 列表"
+        description="嵌套的 dooz_id 列表，通过这些 dooz 的 Dooz Agent 转发任务（不直接访问其 agents）"
     )
     capabilities: list[str] = Field(default_factory=list)
     skills: list[Skill] = Field(default_factory=list)
