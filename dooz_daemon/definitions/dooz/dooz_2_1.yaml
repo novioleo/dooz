@@ -1,0 +1,14 @@
+dooz:
+  dooz_id: "dooz_2_1"
+  name: "安全监控"
+  description: "家庭安全监控系统"
+  role: "dooz"
+  agents:
+    - sensor-agent
+  nested_dooz: []
+  capabilities:
+    - security_monitoring
+  mqtt:
+    topic_prefix: "dooz/dooz_2_1"
+  config:
+    alert_enabled: true

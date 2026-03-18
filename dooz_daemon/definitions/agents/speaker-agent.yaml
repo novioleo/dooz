@@ -1,0 +1,21 @@
+agent:
+  agent_id: "speaker-agent"
+  name: "音箱控制"
+  description: "控制家中音箱播放音乐"
+  role: "sub-agent"
+  capabilities:
+    - play_music
+    - pause_music
+    - set_volume
+  skills:
+    - name: "audio_control"
+      description: "控制音箱播放"
+  mqtt:
+    topic: "speaker-control"
+    subscribe:
+      - "tasks/speaker-agent"
+    publish:
+      - "results/speaker-agent"
+  config:
+    device_type: "smart_speaker"
+    brand: "xiaomi"

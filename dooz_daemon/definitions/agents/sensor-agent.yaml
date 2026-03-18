@@ -1,0 +1,20 @@
+agent:
+  agent_id: "sensor-agent"
+  name: "传感器"
+  description: "读取家中传感器数据"
+  role: "sub-agent"
+  capabilities:
+    - get_temperature
+    - get_humidity
+    - get_motion
+  skills:
+    - name: "sensor_reading"
+      description: "读取传感器数据"
+  mqtt:
+    topic: "sensor-reading"
+    subscribe:
+      - "tasks/sensor-agent"
+    publish:
+      - "results/sensor-agent"
+  config:
+    device_type: "sensor_hub"

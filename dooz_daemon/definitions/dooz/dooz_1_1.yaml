@@ -1,0 +1,16 @@
+dooz:
+  dooz_id: "dooz_1_1"
+  name: "智能家居"
+  description: "控制家中智能设备"
+  role: "dooz-group"
+  agents:
+    - light-agent
+    - speaker-agent
+  nested_dooz:
+    - dooz_2_1
+  capabilities:
+    - smart_home_control
+  mqtt:
+    topic_prefix: "dooz/dooz_1_1"
+  config:
+    auto_discover: true

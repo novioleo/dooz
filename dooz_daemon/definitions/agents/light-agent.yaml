@@ -1,0 +1,21 @@
+agent:
+  agent_id: "light-agent"
+  name: "灯光控制"
+  description: "控制家中灯光开关和亮度"
+  role: "sub-agent"
+  capabilities:
+    - light_on
+    - light_off
+    - light_brightness
+  skills:
+    - name: "light_control"
+      description: "控制灯光开关和亮度"
+  mqtt:
+    topic: "light-control"
+    subscribe:
+      - "tasks/light-agent"
+    publish:
+      - "results/light-agent"
+  config:
+    device_type: "smart_light"
+    brand: "xiaomi"
