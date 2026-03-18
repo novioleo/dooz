@@ -1,5 +1,7 @@
 """Daemon configuration."""
 
+from pathlib import Path
+
 from pydantic import BaseModel, Field
 
 
@@ -22,6 +24,10 @@ class DaemonConfig(BaseModel):
     port: int = Field(default=8765, description="WebSocket server port")
     mqtt: MqttConfig = Field(default_factory=MqttConfig)
     monitor: MonitorConfig = Field(default_factory=MonitorConfig)
+    definitions_dir: Path = Field(
+        default=Path("./definitions"),
+        description="Directory containing dooz and agent definitions"
+    )
 
 
 def load_config(**kwargs) -> DaemonConfig:

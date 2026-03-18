@@ -2,9 +2,12 @@
 
 import asyncio
 import logging
+from pathlib import Path
 from typing import Any, Optional
 
+from .agent_manager import AgentProcessManager
 from .config import DaemonConfig
+from .loader import AgentLoader, DoozLoader
 from .mqtt_client import MqttClient, MqttMessage
 from .websocket_server import WebSocketServer, WsMessage, WebSocketServerProtocol
 
@@ -19,6 +22,40 @@ class DoozDaemon:
         self._running = False
         self._mqtt_client: Optional[MqttClient] = None
         self._ws_server: Optional[WebSocketServer] = None
+        self._dooz_loaders: dict[str, DoozLoader] = {}
+        self._agent_loaders: dict[str, AgentLoader] = {}
+        self._agent_managers: dict[str, AgentProcessManager] = {}
+    
+    async def _load_definitions(self):
+        """Load dooz and agent definitions."""
+        definitions_dir = self.config.definitions_dir
+        
+        # Load dooz definitions
+        dooz_dir = definitions_dir / "dooz"
+        if dooz_dir.exists():
+            dooz_loader = DoozLoader(dooz_dir)
+            dooz_list = dooz_loader.load_all()
+            
+            # Also load agent definitions (shared across dooz)
+            agent_dir = definitions_dir / "agents"
+            if agent_dir.exists():
+                agent_loader = AgentLoader(agent_dir)
+                agents = agent_loader.load_all()
+                
+                for dooz_def in dooz_list:
+                    # Create agent manager for this dooz
+                    manager = AgentProcessManager(
+                        dooz_id=dooz_def.dooz_id,
+                        definitions_dir=agent_dir,
+                    )
+                    
+                    # Spawn agents from definitions
+                    manager.spawn_agents_from_definitions(agents)
+                    
+                    self._agent_managers[dooz_def.dooz_id] = manager
+                    logger.info(f"Loaded dooz: {dooz_def.dooz_id} with {len(agents)} agents")
+        
+        logger.info(f"Loaded {len(self._agent_managers)} dooz instances")
     
     async def _handle_ws_message(
         self,
@@ -47,6 +84,9 @@ class DoozDaemon:
     async def start(self):
         """Start the daemon."""
         logger.info("Starting dooz daemon...")
+        
+        # Load definitions first
+        await self._load_definitions()
         
         # Start MQTT client
         self._mqtt_client = MqttClient(
