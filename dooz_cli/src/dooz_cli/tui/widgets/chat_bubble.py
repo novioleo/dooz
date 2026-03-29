@@ -20,28 +20,28 @@ class ChatBubble(Static):
     def _update_style(self) -> None:
         """Update the bubble style based on message type."""
         if self.message.message_type == MessageType.USER:
-            self.styles.background = "dark_blue"
+            self.styles.background = "#00008b"
             self.styles.color = "white"
             self.styles.align = ("right", "top")
             self.styles.padding = (1, 2)
             self.styles.width = "70%"
             self.styles.margin = (1, 1, 1, 20)
         elif self.message.message_type == MessageType.DAEMON:
-            self.styles.background = "dark_green"
+            self.styles.background = "#006400"
             self.styles.color = "white"
             self.styles.align = ("left", "top")
             self.styles.padding = (1, 2)
             self.styles.width = "70%"
             self.styles.margin = (1, 20, 1, 1)
         elif self.message.message_type == MessageType.ERROR:
-            self.styles.background = "dark_red"
+            self.styles.background = "#8b0000"
             self.styles.color = "white"
             self.styles.align = ("left", "top")
             self.styles.padding = (1, 2)
             self.styles.width = "70%"
             self.styles.margin = (1, 20, 1, 1)
         else:
-            self.styles.background = "dark_gray"
+            self.styles.background = "#404040"
             self.styles.color = "white"
             self.styles.align = ("center", "top")
             self.styles.padding = (1, 2)
