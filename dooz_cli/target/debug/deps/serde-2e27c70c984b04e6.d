@@ -1,0 +1,14 @@
+/Users/taoluo/projects/gcode/epic-dooz-cli-tui/dooz_cli/target/debug/deps/serde-2e27c70c984b04e6.d: /Users/taoluo/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/lib.rs /Users/taoluo/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/integer128.rs /Users/taoluo/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/private/mod.rs /Users/taoluo/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/private/de.rs /Users/taoluo/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/private/ser.rs /Users/taoluo/projects/gcode/epic-dooz-cli-tui/dooz_cli/target/debug/build/serde-a1ac1be19d5b0a76/out/private.rs
+
+/Users/taoluo/projects/gcode/epic-dooz-cli-tui/dooz_cli/target/debug/deps/libserde-2e27c70c984b04e6.rlib: /Users/taoluo/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/lib.rs /Users/taoluo/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/integer128.rs /Users/taoluo/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/private/mod.rs /Users/taoluo/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/private/de.rs /Users/taoluo/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/private/ser.rs /Users/taoluo/projects/gcode/epic-dooz-cli-tui/dooz_cli/target/debug/build/serde-a1ac1be19d5b0a76/out/private.rs
+
+/Users/taoluo/projects/gcode/epic-dooz-cli-tui/dooz_cli/target/debug/deps/libserde-2e27c70c984b04e6.rmeta: /Users/taoluo/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/lib.rs /Users/taoluo/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/integer128.rs /Users/taoluo/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/private/mod.rs /Users/taoluo/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/private/de.rs /Users/taoluo/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/private/ser.rs /Users/taoluo/projects/gcode/epic-dooz-cli-tui/dooz_cli/target/debug/build/serde-a1ac1be19d5b0a76/out/private.rs
+
+/Users/taoluo/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/lib.rs:
+/Users/taoluo/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/integer128.rs:
+/Users/taoluo/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/private/mod.rs:
+/Users/taoluo/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/private/de.rs:
+/Users/taoluo/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/private/ser.rs:
+/Users/taoluo/projects/gcode/epic-dooz-cli-tui/dooz_cli/target/debug/build/serde-a1ac1be19d5b0a76/out/private.rs:
+
+# env-dep:OUT_DIR=/Users/taoluo/projects/gcode/epic-dooz-cli-tui/dooz_cli/target/debug/build/serde-a1ac1be19d5b0a76/out

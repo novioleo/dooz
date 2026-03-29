@@ -1,0 +1,14 @@
+/Users/taoluo/projects/gcode/epic-dooz-cli-tui/dooz_cli/target/debug/deps/thiserror-e2bf2d8a38999b3a.d: /Users/taoluo/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/thiserror-2.0.18/src/lib.rs /Users/taoluo/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/thiserror-2.0.18/src/aserror.rs /Users/taoluo/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/thiserror-2.0.18/src/display.rs /Users/taoluo/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/thiserror-2.0.18/src/var.rs /Users/taoluo/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/thiserror-2.0.18/src/private.rs /Users/taoluo/projects/gcode/epic-dooz-cli-tui/dooz_cli/target/debug/build/thiserror-05da74d047e1decd/out/private.rs
+
+/Users/taoluo/projects/gcode/epic-dooz-cli-tui/dooz_cli/target/debug/deps/libthiserror-e2bf2d8a38999b3a.rlib: /Users/taoluo/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/thiserror-2.0.18/src/lib.rs /Users/taoluo/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/thiserror-2.0.18/src/aserror.rs /Users/taoluo/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/thiserror-2.0.18/src/display.rs /Users/taoluo/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/thiserror-2.0.18/src/var.rs /Users/taoluo/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/thiserror-2.0.18/src/private.rs /Users/taoluo/projects/gcode/epic-dooz-cli-tui/dooz_cli/target/debug/build/thiserror-05da74d047e1decd/out/private.rs
+
+/Users/taoluo/projects/gcode/epic-dooz-cli-tui/dooz_cli/target/debug/deps/libthiserror-e2bf2d8a38999b3a.rmeta: /Users/taoluo/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/thiserror-2.0.18/src/lib.rs /Users/taoluo/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/thiserror-2.0.18/src/aserror.rs /Users/taoluo/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/thiserror-2.0.18/src/display.rs /Users/taoluo/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/thiserror-2.0.18/src/var.rs /Users/taoluo/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/thiserror-2.0.18/src/private.rs /Users/taoluo/projects/gcode/epic-dooz-cli-tui/dooz_cli/target/debug/build/thiserror-05da74d047e1decd/out/private.rs
+
+/Users/taoluo/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/thiserror-2.0.18/src/lib.rs:
+/Users/taoluo/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/thiserror-2.0.18/src/aserror.rs:
+/Users/taoluo/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/thiserror-2.0.18/src/display.rs:
+/Users/taoluo/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/thiserror-2.0.18/src/var.rs:
+/Users/taoluo/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/thiserror-2.0.18/src/private.rs:
+/Users/taoluo/projects/gcode/epic-dooz-cli-tui/dooz_cli/target/debug/build/thiserror-05da74d047e1decd/out/private.rs:
+
+# env-dep:OUT_DIR=/Users/taoluo/projects/gcode/epic-dooz-cli-tui/dooz_cli/target/debug/build/thiserror-05da74d047e1decd/out
