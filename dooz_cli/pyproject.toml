@@ -6,6 +6,7 @@ requires-python = ">=3.12"
 dependencies = [
     "websockets>=12.0",
     "pydantic>=2.0",
+    "textual>=0.80.0",
 ]
 
 [project.optional-dependencies]
@@ -27,3 +28,4 @@ packages = ["src/dooz_cli"]
 [tool.pytest.ini_options]
 pythonpath = ["src"]
 testpaths = ["tests"]
+asyncio_mode = "auto"
