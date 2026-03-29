@@ -1,7 +1,8 @@
 use ratatui::{layout::Rect, Frame};
 
 use crate::action::Action;
-use crate::fragments::chat::{self, ChatModel};
+use crate::fragments::chat::{ChatFragment, ChatModel};
+use crate::fragments::{Fragment, FragmentId, FragmentRegistry};
 use crate::session::store::SessionStore;
 use crate::tui::Tui;
 
@@ -9,14 +10,18 @@ use crate::tui::Tui;
 #[derive(Debug)]
 pub struct App {
     pub session_store: SessionStore,
-    pub chat_model: ChatModel,
+    pub registry: FragmentRegistry<ChatFragment>,
 }
 
 impl App {
     pub fn new() -> Self {
+        let mut registry = FragmentRegistry::new();
+        registry.register(FragmentId::Chat, ChatFragment::new());
+        registry.set_active(FragmentId::Chat);
+
         Self {
-            session_store: SessionStore::new(),
-            chat_model: ChatModel::default(),
+            session_store: SessionStore::new().expect("Failed to initialize session store"),
+            registry,
         }
     }
 
@@ -27,9 +32,9 @@ impl App {
             Action::Quit => None,
             Action::Render => Some(Action::Render),
             Action::Resize(_, _) => Some(Action::Render),
-            Action::Chat(chat_action) => {
-                chat::update(&mut self.chat_model, chat_action);
-                Some(Action::Render)
+            Action::Chat(_) => {
+                // Route chat actions to the registry (active fragment)
+                self.registry.update(action)
             }
         }
     }
