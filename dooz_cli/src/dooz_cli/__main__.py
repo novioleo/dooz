@@ -2,6 +2,7 @@
 
 import asyncio
 import argparse
+import sys
 
 from . import DoozCLI
 
@@ -20,6 +21,11 @@ def main():
         help="Target dooz ID",
     )
     parser.add_argument(
+        "--tui",
+        action="store_true",
+        help="Launch TUI interface (default for interactive mode)",
+    )
+    parser.add_argument(
         "message",
         nargs="?",
         help="Message to send (if not interactive)",
@@ -27,21 +33,31 @@ def main():
     
     args = parser.parse_args()
     
-    cli = DoozCLI(args.uri)
-    
-    async def run():
-        if args.message:
-            # Single message mode
+    if args.tui or (not args.message):
+        # Launch TUI mode
+        from dooz_cli.tui.websocket_tui import WebSocketTUI
+        
+        async def run_tui():
+            app = WebSocketTUI(uri=args.uri)
+            async with app.run_test() as pilot:
+                # For testing/interactive use
+                await pilot.run()
+        
+        # For actual TUI, use run which is async
+        asyncio.run(run_tui())
+    else:
+        # Single message mode (legacy)
+        cli = DoozCLI(args.uri)
+        
+        async def run():
             if not await cli.connect():
                 print("Failed to connect to daemon")
-                return
+                sys.exit(1)
             await cli.send_message(args.message, args.dooz_id)
             await asyncio.sleep(1)  # Wait for response
             await cli.disconnect()
-        else:
-            print("Interactive mode not implemented in this phase")
-    
-    asyncio.run(run())
+        
+        asyncio.run(run())
 
 
 if __name__ == "__main__":
