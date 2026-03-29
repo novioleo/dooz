@@ -1,20 +1,23 @@
 use uuid::Uuid;
 
-use crate::action::ChatAction;
+use crate::action::{Action, ChatAction};
 use crate::session::types::{Message, MessageRole, Session};
 
 use super::model::ChatModel;
 
 /// Update function for chat fragment - processes ChatAction and mutates model
-pub fn update(model: &mut ChatModel, action: ChatAction) {
+/// Returns Some(Action) for actions that need to be handled at the app level
+pub fn update(model: &mut ChatModel, action: ChatAction) -> Option<Action> {
     match action {
         ChatAction::SendMessage(content) => {
             let message = Message::new(MessageRole::User, content);
             model.add_message(message);
+            None
         }
         ChatAction::ReceiveMessage { from: _, content } => {
             let message = Message::new(MessageRole::Assistant, content);
             model.add_message(message);
+            None
         }
         ChatAction::LoadSessions(sessions) => {
             // Convert SessionInfo to Session for storage
@@ -33,51 +36,82 @@ pub fn update(model: &mut ChatModel, action: ChatAction) {
                 model.session_list_state.select(Some(0));
                 model.active_session_id = Some(model.sessions[0].id);
             }
+            None
         }
         ChatAction::SelectSession(index) => {
             model.select_session(index);
+            None
         }
         ChatAction::SelectSessionById(id) => {
             if let Some(index) = model.sessions.iter().position(|s| s.id == id) {
                 model.select_session(index);
             }
+            None
         }
         ChatAction::SelectConversation(_) => {
             // Conversation selection is handled at the app level
             // Chat fragment just displays messages for now
+            None
         }
         ChatAction::ScrollUp => {
             model.scroll_up();
+            None
         }
         ChatAction::ScrollDown => {
             model.scroll_down();
+            None
         }
         ChatAction::ScrollToBottom => {
             model.scroll_to_bottom();
+            None
         }
         ChatAction::InputChar(c) => {
             model.insert_char(c);
+            None
         }
         ChatAction::InputBackspace => {
             model.delete_back();
+            None
         }
         ChatAction::InputLeft => {
             model.move_cursor_left();
+            None
         }
         ChatAction::InputRight => {
             model.move_cursor_right();
+            None
         }
         ChatAction::InputEnter => {
             if !model.input_buffer.is_empty() {
                 let content = model.get_input_content();
-                model.clear_input();
-                // Send the message
-                let message = Message::new(MessageRole::User, content);
-                model.add_message(message);
+                
+                // Check for commands (input starting with /)
+                match content.trim() {
+                    "/new" => {
+                        model.clear_input();
+                        return Some(Action::Chat(ChatAction::CreateSession));
+                    }
+                    "/exit" => {
+                        model.clear_input();
+                        return Some(Action::Exit);
+                    }
+                    _ => {
+                        model.clear_input();
+                        // Send the message
+                        let message = Message::new(MessageRole::User, content);
+                        model.add_message(message);
+                    }
+                }
             }
+            None
         }
         ChatAction::ClearInput => {
             model.clear_input();
+            None
+        }
+        ChatAction::CreateSession => {
+            // This is handled at the app level via Action::Chat(CreateSession)
+            None
         }
     }
 }
@@ -191,7 +225,7 @@ mod tests {
         update(&mut model, ChatAction::InputChar('i'));
         
         // Press Enter to send
-        update(&mut model, ChatAction::InputEnter);
+        let result = update(&mut model, ChatAction::InputEnter);
         
         // Input should be cleared
         assert_eq!(model.input_buffer, "");
@@ -201,6 +235,9 @@ mod tests {
         assert_eq!(model.messages.len(), 1);
         assert_eq!(model.messages[0].content, "hi");
         assert_eq!(model.messages[0].role, MessageRole::User);
+        
+        // Should return None for regular messages
+        assert!(result.is_none());
     }
 
     #[test]
@@ -208,10 +245,13 @@ mod tests {
         let mut model = ChatModel::new();
         
         // Press Enter with empty input
-        update(&mut model, ChatAction::InputEnter);
+        let result = update(&mut model, ChatAction::InputEnter);
         
         // No message should be added
         assert_eq!(model.messages.len(), 0);
+        
+        // Should return None
+        assert!(result.is_none());
     }
 
     #[test]
@@ -254,5 +294,69 @@ mod tests {
         
         update(&mut model, ChatAction::InputRight);
         assert_eq!(model.cursor_position, 1);
+    }
+
+    #[test]
+    fn test_input_new_command_returns_create_session() {
+        let mut model = ChatModel::new();
+        update(&mut model, ChatAction::InputChar('/'));
+        update(&mut model, ChatAction::InputChar('n'));
+        update(&mut model, ChatAction::InputChar('e'));
+        update(&mut model, ChatAction::InputChar('w'));
+        
+        assert_eq!(model.input_buffer, "/new");
+        
+        // Press Enter to execute command
+        let result = update(&mut model, ChatAction::InputEnter);
+        
+        // Should return CreateSession action
+        assert!(result.is_some());
+        assert_eq!(result.unwrap(), Action::Chat(ChatAction::CreateSession));
+        
+        // Input should be cleared
+        assert_eq!(model.input_buffer, "");
+    }
+
+    #[test]
+    fn test_input_exit_command_returns_exit() {
+        let mut model = ChatModel::new();
+        update(&mut model, ChatAction::InputChar('/'));
+        update(&mut model, ChatAction::InputChar('e'));
+        update(&mut model, ChatAction::InputChar('x'));
+        update(&mut model, ChatAction::InputChar('i'));
+        update(&mut model, ChatAction::InputChar('t'));
+        
+        assert_eq!(model.input_buffer, "/exit");
+        
+        // Press Enter to execute command
+        let result = update(&mut model, ChatAction::InputEnter);
+        
+        // Should return Exit action
+        assert!(result.is_some());
+        assert_eq!(result.unwrap(), Action::Exit);
+        
+        // Input should be cleared
+        assert_eq!(model.input_buffer, "");
+    }
+
+    #[test]
+    fn test_input_unknown_command_sends_as_message() {
+        let mut model = ChatModel::new();
+        update(&mut model, ChatAction::InputChar('/'));
+        update(&mut model, ChatAction::InputChar('h'));
+        update(&mut model, ChatAction::InputChar('e'));
+        update(&mut model, ChatAction::InputChar('l'));
+        update(&mut model, ChatAction::InputChar('p'));
+        
+        assert_eq!(model.input_buffer, "/help");
+        
+        // Press Enter - unknown commands are sent as messages
+        let result = update(&mut model, ChatAction::InputEnter);
+        
+        // Should return None and send as message
+        assert!(result.is_none());
+        assert_eq!(model.messages.len(), 1);
+        assert_eq!(model.messages[0].content, "/help");
+        assert_eq!(model.messages[0].role, MessageRole::User);
     }
 }

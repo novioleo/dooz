@@ -6,6 +6,7 @@ pub enum Action {
     // Application lifecycle
     Init,
     Quit,
+    Exit,
 
     // UI actions
     Render,
@@ -39,6 +40,7 @@ pub enum ChatAction {
     LoadSessions(Vec<SessionInfo>),
     SelectSession(usize),
     SelectSessionById(Uuid),
+    CreateSession,
 
     // Legacy
     SelectConversation(String),

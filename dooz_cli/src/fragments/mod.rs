@@ -55,8 +55,10 @@ impl Fragment for ChatFragment {
     fn update(&mut self, action: Action) -> Option<Action> {
         match action {
             Action::Chat(chat_action) => {
-                chat::update(&mut self.model, chat_action);
-                Some(Action::Render)
+                let result = chat::update(&mut self.model, chat_action);
+                // If the chat update returns an action (like CreateSession or Exit), propagate it
+                // Otherwise, return Render to trigger re-render
+                result.or(Some(Action::Render))
             }
             _ => None,
         }
@@ -109,6 +111,15 @@ impl<F: Fragment> FragmentRegistry<F> {
     #[allow(dead_code)]
     pub fn active_id(&self) -> FragmentId {
         self.active
+    }
+
+    /// Get a mutable reference to a fragment by ID.
+    ///
+    /// # Panics
+    /// Panics if no fragment is registered with the given ID.
+    #[allow(dead_code)]
+    pub fn get_mut(&mut self, id: FragmentId) -> Option<&mut F> {
+        self.fragments.get_mut(&id)
     }
 
     /// Update the active fragment with the given action.
