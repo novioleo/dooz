@@ -1,7 +1,7 @@
 use ratatui::{
     layout::{Margin, Rect},
     style::Stylize,
-    style::{Style, Color},
+    style::Style,
     text::{Line, Text},
     widgets::{Block, Borders, List, ListItem, Paragraph, Widget},
     Frame,
@@ -86,7 +86,7 @@ fn render_session_list(model: &ChatModel, f: &mut Frame, area: Rect, inner_margi
             .style(Style::new());
 
         // Render with stateful widget to maintain scroll position
-        let mut state = model.session_list_state.clone();
+        let mut state = model.session_list_state;
         f.render_stateful_widget(list, content_area, &mut state);
     }
 }

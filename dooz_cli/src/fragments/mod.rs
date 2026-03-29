@@ -122,6 +122,12 @@ impl<F: Fragment> FragmentRegistry<F> {
         self.fragments.get_mut(&id)
     }
 
+    /// Get an immutable reference to a fragment by ID.
+    #[allow(dead_code)]
+    pub fn get(&self, id: FragmentId) -> Option<&F> {
+        self.fragments.get(&id)
+    }
+
     /// Update the active fragment with the given action.
     ///
     /// Routes the action to the active fragment's update method.

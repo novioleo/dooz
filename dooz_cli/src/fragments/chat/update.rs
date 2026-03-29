@@ -1,5 +1,3 @@
-use uuid::Uuid;
-
 use crate::action::{Action, ChatAction};
 use crate::session::types::{Message, MessageRole, Session};
 
@@ -119,6 +117,7 @@ pub fn update(model: &mut ChatModel, action: ChatAction) -> Option<Action> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use uuid::Uuid;
 
     #[test]
     fn test_send_message_adds_to_model() {
