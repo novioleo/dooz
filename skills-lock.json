@@ -1,0 +1,15 @@
+{
+  "version": 1,
+  "skills": {
+    "ccpm": {
+      "source": "automazeio/ccpm",
+      "sourceType": "github",
+      "computedHash": "a2ce10b24978ff0f378e408e9485e4944096d6889600987163b11049050211b5"
+    },
+    "ratatui-tui": {
+      "source": "blacktop/dotfiles",
+      "sourceType": "github",
+      "computedHash": "94bcff606dbebe619206ad13236309a9fc77b6a0a8f69301f60eca83a82c58e4"
+    }
+  }
+}
