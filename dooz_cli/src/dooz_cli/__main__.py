@@ -1,8 +1,6 @@
 """CLI entry point."""
 
-import asyncio
 import argparse
-import sys
 
 from . import DoozCLI
 
@@ -23,7 +21,7 @@ def main():
     parser.add_argument(
         "--tui",
         action="store_true",
-        help="Launch TUI interface (default for interactive mode)",
+        help="Launch TUI interface",
     )
     parser.add_argument(
         "message",
@@ -34,13 +32,17 @@ def main():
     args = parser.parse_args()
     
     if args.tui or (not args.message):
-        # Launch TUI mode
-        from dooz_cli.tui.websocket_tui import WebSocketTUI
+        # Launch TUI mode (standalone, no daemon)
+        from dooz_cli.tui.app import DoozTUI
         
-        app = WebSocketTUI(uri=args.uri)
+        app = DoozTUI()
         app.run()
     else:
         # Single message mode (legacy)
+        from . import DoozCLI
+        import asyncio
+        import sys
+        
         cli = DoozCLI(args.uri)
         
         async def run():
