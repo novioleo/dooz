@@ -1,14 +1,8 @@
 """Dooz TUI Application."""
 
-import asyncio
-from typing import Optional
-
 from textual.app import App, ComposeResult
-from textual.driver import Driver
-from textual.geometry import Size
 
-from dooz_cli.tui.models import Message, MessageType
-from dooz_cli.tui.screens.chat_screen import ChatScreen, MessageSubmitted
+from dooz_cli.tui.screens.main_screen import MainScreen
 
 
 class DoozTUI(App):
@@ -29,25 +23,10 @@ class DoozTUI(App):
     }
     """
     
-    def __init__(self, **kwargs):
-        super().__init__(**kwargs)
-        self._chat_screen: Optional[ChatScreen] = None
+    def compose(self) -> ComposeResult:
+        """Compose the application."""
+        yield MainScreen()
     
     async def on_mount(self) -> None:
         """Handle app mount."""
-        self._chat_screen = self.screen  # type: ignore
-    
-    def compose(self) -> ComposeResult:
-        """Compose the application."""
-        yield ChatScreen()
-    
-    def get_chat_screen(self) -> ChatScreen:
-        """Get the chat screen instance."""
-        if self._chat_screen is None:
-            self._chat_screen = self.screen  # type: ignore
-        return self._chat_screen
-    
-    async def handle_message_submitted(self, event: MessageSubmitted) -> None:
-        """Handle message submitted event from chat screen."""
-        # Override in subclass or set callback to handle message sending
         pass

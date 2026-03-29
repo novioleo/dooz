@@ -28,3 +28,25 @@ class Message:
     def __str__(self) -> str:
         """String representation."""
         return f"[{self.author}] {self.content}"
+
+
+@dataclass
+class Conversation:
+    """Conversation session model."""
+    
+    id: str
+    title: str
+    created_at: float = field(default_factory=lambda: datetime.now().timestamp())
+    updated_at: float = field(default_factory=lambda: datetime.now().timestamp())
+    
+    @property
+    def created_time_str(self) -> str:
+        """Get formatted creation time."""
+        dt = datetime.fromtimestamp(self.created_at)
+        return dt.strftime("%H:%M")
+    
+    @property
+    def updated_time_str(self) -> str:
+        """Get formatted update time."""
+        dt = datetime.fromtimestamp(self.updated_at)
+        return dt.strftime("%H:%M")
