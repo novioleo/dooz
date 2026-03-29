@@ -9,6 +9,7 @@ from textual.app import ComposeResult
 from dooz_cli.tui.app import DoozTUI
 from dooz_cli.tui.models import Message, MessageType
 from dooz_cli.tui.screens.chat_screen import ChatScreen, MessageSubmitted
+from dooz_cli.tui.screens import ChatScreen as ChatScreenType
 from dooz_cli.websocket_client import CliClient
 
 logger = logging.getLogger("dooz_cli")
@@ -33,10 +34,10 @@ class WebSocketTUI(DoozTUI):
         self.client = CliClient(self.uri, on_message=self._handle_daemon_message)
         
         if await self.client.connect():
-            self.get_chat_screen().add_system_message("Connected to daemon")
+            self.screen.query_one(ChatScreen).add_system_message("Connected to daemon")
             self._receive_task = asyncio.create_task(self._receive_loop())
         else:
-            self.get_chat_screen().add_error_message("Failed to connect to daemon")
+            self.screen.query_one(ChatScreen).add_error_message("Failed to connect to daemon")
     
     async def _receive_loop(self) -> None:
         """Receive messages from daemon."""

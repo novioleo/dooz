@@ -37,14 +37,8 @@ def main():
         # Launch TUI mode
         from dooz_cli.tui.websocket_tui import WebSocketTUI
         
-        async def run_tui():
-            app = WebSocketTUI(uri=args.uri)
-            async with app.run_test() as pilot:
-                # For testing/interactive use
-                await pilot.run()
-        
-        # For actual TUI, use run which is async
-        asyncio.run(run_tui())
+        app = WebSocketTUI(uri=args.uri)
+        app.run()
     else:
         # Single message mode (legacy)
         cli = DoozCLI(args.uri)

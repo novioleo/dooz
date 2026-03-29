@@ -36,4 +36,3 @@ class MessageList(Static):
     def on_mount(self) -> None:
         """Set up the message list container."""
         self.styles.layout = "vertical"
-        self.styles.gutter = 0

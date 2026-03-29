@@ -33,7 +33,7 @@ class DoozTUI(App):
         super().__init__(**kwargs)
         self._chat_screen: Optional[ChatScreen] = None
     
-    def on_mount(self) -> None:
+    async def on_mount(self) -> None:
         """Handle app mount."""
         self._chat_screen = self.screen  # type: ignore
     
