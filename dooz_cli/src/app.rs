@@ -1,7 +1,7 @@
 use ratatui::{layout::Rect, Frame};
 
 use crate::action::Action;
-use crate::fragments::chat::{ChatFragment, ChatModel};
+use crate::fragments::ChatFragment;
 use crate::fragments::{Fragment, FragmentId, FragmentRegistry};
 use crate::session::store::SessionStore;
 use crate::tui::Tui;
@@ -20,7 +20,7 @@ impl App {
         registry.set_active(FragmentId::Chat);
 
         Self {
-            session_store: SessionStore::new().expect("Failed to initialize session store"),
+            session_store: SessionStore::new().expect("Failed to create session store"),
             registry,
         }
     }

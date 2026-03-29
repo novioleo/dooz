@@ -2,6 +2,9 @@ use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
+/// Type alias for conversation identifiers
+pub type ConversationId = String;
+
 /// Role of the message sender
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub enum MessageRole {
