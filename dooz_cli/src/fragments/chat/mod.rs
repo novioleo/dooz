@@ -2,7 +2,7 @@ mod model;
 mod update;
 mod view;
 
-pub use model::{ChatMessage, ChatModel};
+pub use model::ChatModel;
 pub use update::update;
 pub use view::render;
 
