@@ -29,5 +29,5 @@ pub trait Fragment {
     fn update(&mut self, action: Action) -> Option<Action>;
 
     /// Render the fragment to the terminal frame.
-    fn view(&self, frame: &mut Frame);
+    fn view(&mut self, frame: &mut Frame);
 }

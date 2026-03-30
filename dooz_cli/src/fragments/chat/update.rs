@@ -10,12 +10,20 @@ pub fn update(model: &mut ChatModel, action: ChatAction) -> Option<Action> {
         ChatAction::SendMessage(content) => {
             let message = Message::new(MessageRole::User, content);
             model.add_message(message);
-            None
+            Some(Action::Chat(ChatAction::SaveSession))
         }
         ChatAction::ReceiveMessage { from: _, content } => {
             let message = Message::new(MessageRole::Assistant, content);
             model.add_message(message);
-            None
+            Some(Action::Chat(ChatAction::SaveSession))
+        }
+        ChatAction::Help => {
+            let help_msg = Message::new(
+                MessageRole::Assistant,
+                "Available commands:\n/new - Create a new session\n/exit - Exit the program\n/help - Show this help message".to_string(),
+            );
+            model.add_message(help_msg);
+            Some(Action::Chat(ChatAction::SaveSession))
         }
         ChatAction::LoadSessions(sessions) => {
             // Convert SessionInfo to Session for storage
@@ -51,12 +59,12 @@ pub fn update(model: &mut ChatModel, action: ChatAction) -> Option<Action> {
             // Chat fragment just displays messages for now
             None
         }
-        ChatAction::ScrollUp => {
-            model.scroll_up();
-            None
-        }
-        ChatAction::ScrollDown => {
-            model.scroll_down();
+        ChatAction::Scroll(delta) => {
+            if delta > 0 {
+                model.scroll_up();
+            } else if delta < 0 {
+                model.scroll_down();
+            }
             None
         }
         ChatAction::ScrollToBottom => {
@@ -80,6 +88,11 @@ pub fn update(model: &mut ChatModel, action: ChatAction) -> Option<Action> {
             None
         }
         ChatAction::InputEnter => {
+            // Insert newline character for multi-line input
+            model.insert_newline();
+            None
+        }
+        ChatAction::SendInput => {
             if !model.input_buffer.is_empty() {
                 let content = model.get_input_content();
                 
@@ -87,17 +100,45 @@ pub fn update(model: &mut ChatModel, action: ChatAction) -> Option<Action> {
                 match content.trim() {
                     "/new" => {
                         model.clear_input();
+                        // Check if latest session is empty - if so, don't create new session
+                        // We should reuse the empty latest session instead of creating another
+                        if model.is_latest_session_empty() {
+                            let msg = Message::new(
+                                MessageRole::Assistant,
+                                "Latest session is empty. Start chatting or use /exit to quit.".to_string(),
+                            );
+                            model.add_message(msg);
+                            return None;
+                        }
                         return Some(Action::Chat(ChatAction::CreateSession));
                     }
                     "/exit" => {
                         model.clear_input();
                         return Some(Action::Exit);
                     }
-                    _ => {
+                    "/help" => {
                         model.clear_input();
-                        // Send the message
-                        let message = Message::new(MessageRole::User, content);
-                        model.add_message(message);
+                        // Show help message
+                        let help_msg = Message::new(
+                            MessageRole::Assistant,
+                            "Available commands:\n/new - Create a new session\n/exit - Exit the program\n/help - Show this help message".to_string(),
+                        );
+                        model.add_message(help_msg);
+                        return None;
+                    }
+                    _ => {
+                        // Echo message (for testing): add user message then reversed assistant response
+                        let user_message = Message::new(MessageRole::User, content.clone());
+                        model.add_message(user_message);
+                        
+                        // Echo back reversed text for testing
+                        let reversed: String = content.chars().rev().collect();
+                        let echo_message = Message::new(MessageRole::Assistant, reversed);
+                        model.add_message(echo_message);
+                        
+                        model.clear_input();
+                        // Return SaveSession to persist the new messages
+                        return Some(Action::Chat(ChatAction::SaveSession));
                     }
                 }
             }
@@ -109,6 +150,11 @@ pub fn update(model: &mut ChatModel, action: ChatAction) -> Option<Action> {
         }
         ChatAction::CreateSession => {
             // This is handled at the app level via Action::Chat(CreateSession)
+            None
+        }
+        ChatAction::SaveSession => {
+            // This is handled at the app level to persist session state
+            // No state changes needed here - just signal to app to save
             None
         }
     }
@@ -223,20 +269,27 @@ mod tests {
         update(&mut model, ChatAction::InputChar('h'));
         update(&mut model, ChatAction::InputChar('i'));
         
-        // Press Enter to send
-        let result = update(&mut model, ChatAction::InputEnter);
+        // Press Ctrl+Enter to send
+        let result = update(&mut model, ChatAction::SendInput);
         
         // Input should be cleared
         assert_eq!(model.input_buffer, "");
         assert_eq!(model.cursor_position, 0);
         
-        // Message should be in the chat
-        assert_eq!(model.messages.len(), 1);
+        // Should have 2 messages: user message + echo reply
+        assert_eq!(model.messages.len(), 2);
+        
+        // First message is user
         assert_eq!(model.messages[0].content, "hi");
         assert_eq!(model.messages[0].role, MessageRole::User);
         
-        // Should return None for regular messages
-        assert!(result.is_none());
+        // Second message is echo (reversed)
+        assert_eq!(model.messages[1].content, "ih");
+        assert_eq!(model.messages[1].role, MessageRole::Assistant);
+        
+        // Should return SaveSession to persist the messages
+        assert!(result.is_some());
+        assert_eq!(result.unwrap(), Action::Chat(ChatAction::SaveSession));
     }
 
     #[test]
@@ -305,15 +358,19 @@ mod tests {
         
         assert_eq!(model.input_buffer, "/new");
         
-        // Press Enter to execute command
-        let result = update(&mut model, ChatAction::InputEnter);
+        // Press Ctrl+Enter to execute command
+        let result = update(&mut model, ChatAction::SendInput);
         
-        // Should return CreateSession action
-        assert!(result.is_some());
-        assert_eq!(result.unwrap(), Action::Chat(ChatAction::CreateSession));
+        // New model has empty session, so /new should show a message instead of creating
+        // Since empty session returns None (message shown), not CreateSession
+        assert!(result.is_none());
         
         // Input should be cleared
         assert_eq!(model.input_buffer, "");
+        
+        // A message should have been added explaining the situation
+        assert_eq!(model.messages.len(), 1);
+        assert!(model.messages[0].content.contains("empty"));
     }
 
     #[test]
@@ -327,8 +384,8 @@ mod tests {
         
         assert_eq!(model.input_buffer, "/exit");
         
-        // Press Enter to execute command
-        let result = update(&mut model, ChatAction::InputEnter);
+        // Press Ctrl+Enter to execute command
+        let result = update(&mut model, ChatAction::SendInput);
         
         // Should return Exit action
         assert!(result.is_some());
@@ -339,7 +396,7 @@ mod tests {
     }
 
     #[test]
-    fn test_input_unknown_command_sends_as_message() {
+    fn test_input_help_command_shows_help() {
         let mut model = ChatModel::new();
         update(&mut model, ChatAction::InputChar('/'));
         update(&mut model, ChatAction::InputChar('h'));
@@ -349,13 +406,15 @@ mod tests {
         
         assert_eq!(model.input_buffer, "/help");
         
-        // Press Enter - unknown commands are sent as messages
-        let result = update(&mut model, ChatAction::InputEnter);
+        // Press Ctrl+Enter - /help is a known command
+        let result = update(&mut model, ChatAction::SendInput);
         
-        // Should return None and send as message
+        // Should return None and show help message
         assert!(result.is_none());
+        
+        // /help doesn't add user message, only the help response
         assert_eq!(model.messages.len(), 1);
-        assert_eq!(model.messages[0].content, "/help");
-        assert_eq!(model.messages[0].role, MessageRole::User);
+        assert_eq!(model.messages[0].role, MessageRole::Assistant);
+        assert!(model.messages[0].content.contains("Available commands"));
     }
 }

@@ -64,9 +64,9 @@ impl Fragment for ChatFragment {
         }
     }
 
-    fn view(&self, frame: &mut Frame) {
+    fn view(&mut self, frame: &mut Frame) {
         let chunk = frame.area();
-        chat::render(&self.model, frame, chunk);
+        chat::render(&mut self.model, frame, chunk);
     }
 }
 
@@ -107,10 +107,36 @@ impl<F: Fragment> FragmentRegistry<F> {
         self.active = id;
     }
 
+    /// Set active fragment by index (0-based, for Alt+number shortcuts)
+    /// Returns true if successful, false if index is out of bounds
+    pub fn set_active_by_index(&mut self, index: usize) -> bool {
+        // Get all fragment IDs and sort them
+        let fragment_ids: Vec<FragmentId> = self.fragments.keys().cloned().collect();
+        if index < fragment_ids.len() {
+            let id = fragment_ids[index];
+            self.active = id;
+            true
+        } else {
+            false
+        }
+    }
+
     /// Get the active fragment ID.
     #[allow(dead_code)]
     pub fn active_id(&self) -> FragmentId {
         self.active
+    }
+
+    /// Get the index of the active fragment (for display purposes)
+    pub fn active_index(&self) -> usize {
+        let mut fragment_ids: Vec<FragmentId> = self.fragments.keys().cloned().collect();
+        fragment_ids.sort_by_key(|&id| id as u8);
+        fragment_ids.iter().position(|&id| id == self.active).unwrap_or(0)
+    }
+
+    /// Get total number of fragments (for display purposes)
+    pub fn fragment_count(&self) -> usize {
+        self.fragments.len()
     }
 
     /// Get a mutable reference to a fragment by ID.
@@ -138,8 +164,8 @@ impl<F: Fragment> FragmentRegistry<F> {
     }
 
     /// Render the active fragment to the terminal frame.
-    pub fn view(&self, frame: &mut Frame) {
-        if let Some(fragment) = self.fragments.get(&self.active) {
+    pub fn view(&mut self, frame: &mut Frame) {
+        if let Some(fragment) = self.fragments.get_mut(&self.active) {
             fragment.view(frame);
         }
     }

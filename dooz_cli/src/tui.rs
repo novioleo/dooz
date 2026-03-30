@@ -21,12 +21,16 @@ impl Tui {
     /// Enter the terminal UI mode - enables raw mode and alternate screen
     pub fn enter(&mut self) -> std::io::Result<()> {
         use crossterm::terminal::{enable_raw_mode, EnterAlternateScreen};
+        use crossterm::event::EnableMouseCapture;
 
         // Enable raw mode for direct terminal control
         enable_raw_mode()?;
 
         // Enter the alternate screen (provides a fresh terminal for TUI)
         execute!(std::io::stdout(), EnterAlternateScreen)?;
+
+        // Enable mouse capture for mouse events
+        execute!(std::io::stdout(), EnableMouseCapture)?;
 
         // Hide the cursor for a cleaner look
         self.terminal.hide_cursor()?;
@@ -54,8 +58,10 @@ impl Tui {
     /// Cleanup terminal state (used by panic hook and exit)
     fn cleanup() -> std::io::Result<()> {
         use crossterm::terminal::{disable_raw_mode, LeaveAlternateScreen};
+        use crossterm::event::DisableMouseCapture;
 
         // Ignore errors during cleanup to avoid cascading failures
+        let _ = execute!(std::io::stdout(), DisableMouseCapture);
         let _ = disable_raw_mode();
         let _ = execute!(std::io::stdout(), LeaveAlternateScreen);
         Ok(())
@@ -95,26 +101,34 @@ impl Tui {
                     return Ok(Action::Render);
                 }
 
+                // Handle Alt+number for fragment switching (like tmux)
+                if key_event.modifiers == crossterm::event::KeyModifiers::ALT {
+                    if let KeyCode::Char(c) = key_event.code {
+                        if let Some(n) = c.to_digit(10) {
+                            return Ok(Action::SwitchToFragment(n as usize));
+                        }
+                    }
+                }
+
                 match key_event.code {
                     KeyCode::Char(c) => {
-                        // Handle regular character input
-                        if c == '/' {
-                            // Command mode starts with /
-                            Ok(Action::Chat(ChatAction::InputChar(c)))
-                        } else if c.is_ascii_lowercase() || c.is_ascii_uppercase() || c == ' ' {
-                            // Regular text input
-                            Ok(Action::Chat(ChatAction::InputChar(c)))
-                        } else {
-                            // Other characters
-                            Ok(Action::Render)
-                        }
+                        // Handle all character input
+                        Ok(Action::Chat(ChatAction::InputChar(c)))
                     }
                     KeyCode::Backspace => Ok(Action::Chat(ChatAction::InputBackspace)),
                     KeyCode::Left => Ok(Action::Chat(ChatAction::InputLeft)),
                     KeyCode::Right => Ok(Action::Chat(ChatAction::InputRight)),
-                    KeyCode::Enter => Ok(Action::Chat(ChatAction::InputEnter)),
-                    KeyCode::Up => Ok(Action::Chat(ChatAction::ScrollUp)),
-                    KeyCode::Down => Ok(Action::Chat(ChatAction::ScrollDown)),
+                    KeyCode::Enter => {
+                        // Check if Shift is pressed - if so, insert newline
+                        if key_event.modifiers.contains(crossterm::event::KeyModifiers::SHIFT) {
+                            Ok(Action::Chat(ChatAction::InputEnter))
+                        } else {
+                            // Regular Enter sends the input
+                            Ok(Action::Chat(ChatAction::SendInput))
+                        }
+                    }
+                    KeyCode::Up => Ok(Action::Chat(ChatAction::Scroll(1))),
+                    KeyCode::Down => Ok(Action::Chat(ChatAction::Scroll(-1))),
                     KeyCode::Esc => Ok(Action::Exit),
                     KeyCode::Home => Ok(Action::Chat(ChatAction::ScrollToBottom)),
                     KeyCode::End => Ok(Action::Chat(ChatAction::ScrollToBottom)),
@@ -122,16 +136,23 @@ impl Tui {
                 }
             }
             Event::Mouse(mouse_event) => {
-                // Handle mouse events for scrolling
                 use crossterm::event::MouseEventKind;
 
                 match mouse_event.kind {
-                    MouseEventKind::ScrollUp => Ok(Action::Chat(ChatAction::ScrollUp)),
-                    MouseEventKind::ScrollDown => Ok(Action::Chat(ChatAction::ScrollDown)),
-                    MouseEventKind::Down(_) | MouseEventKind::Up(_) => {
-                        // For now, just re-render on mouse click
-                        // Session selection could be added here
-                        Ok(Action::Render)
+                    MouseEventKind::ScrollUp => {
+                        // Route scroll to the active region in the fragment
+                        Ok(Action::Chat(ChatAction::Scroll(1))) // Positive = up
+                    }
+                    MouseEventKind::ScrollDown => {
+                        // Route scroll to the active region in the fragment
+                        Ok(Action::Chat(ChatAction::Scroll(-1))) // Negative = down
+                    }
+                    MouseEventKind::Down(_) => {
+                        // Pass click coordinates to app for session selection
+                        Ok(Action::MouseClick {
+                            x: mouse_event.column,
+                            y: mouse_event.row,
+                        })
                     }
                     _ => Ok(Action::Render),
                 }

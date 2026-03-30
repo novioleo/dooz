@@ -12,8 +12,14 @@ pub enum Action {
     Render,
     Resize(u16, u16),
 
+    // Fragment navigation
+    SwitchToFragment(usize),
+
     // Fragment actions
     Chat(ChatAction),
+
+    // Mouse actions
+    MouseClick { x: u16, y: u16 },
 }
 
 /// Chat fragment actions
@@ -23,9 +29,8 @@ pub enum ChatAction {
     SendMessage(String),
     ReceiveMessage { from: String, content: String },
 
-    // Scroll actions
-    ScrollUp,
-    ScrollDown,
+    // Scroll actions (delta: positive = up, negative = down)
+    Scroll(i32),
     ScrollToBottom,
 
     // Input area actions
@@ -33,7 +38,8 @@ pub enum ChatAction {
     InputBackspace,
     InputLeft,
     InputRight,
-    InputEnter,
+    InputEnter,      // Insert newline character
+    SendInput,       // Send the current input (Ctrl+Enter)
     ClearInput,
 
     // Session management
@@ -41,6 +47,12 @@ pub enum ChatAction {
     SelectSession(usize),
     SelectSessionById(Uuid),
     CreateSession,
+
+    // Persistence
+    SaveSession,
+
+    // Help
+    Help,
 
     // Legacy
     SelectConversation(String),

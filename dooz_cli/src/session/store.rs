@@ -25,11 +25,11 @@ impl SessionStore {
         Ok(Self { sessions_dir })
     }
 
-    /// Get the default sessions directory path: `.doz/sessions/`
+    /// Get the default sessions directory path: `.dooz/sessions/` in current directory
     fn default_sessions_dir() -> Result<PathBuf> {
-        let home_dir = dirs::home_dir()
-            .context("Could not determine home directory")?;
-        Ok(home_dir.join(".doz").join("sessions"))
+        let cwd = std::env::current_dir()
+            .context("Could not determine current directory")?;
+        Ok(cwd.join(".dooz").join("sessions"))
     }
 
     /// Get the file path for a session
@@ -130,7 +130,7 @@ impl SessionStore {
 impl Default for SessionStore {
     fn default() -> Self {
         Self {
-            sessions_dir: Self::default_sessions_dir().unwrap_or_else(|_| PathBuf::from(".doz/sessions")),
+            sessions_dir: Self::default_sessions_dir().unwrap_or_else(|_| PathBuf::from(".dooz/sessions")),
         }
     }
 }

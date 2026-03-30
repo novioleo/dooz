@@ -68,6 +68,29 @@ impl App {
             }
             Action::Render => Some(Action::Render),
             Action::Resize(_, _) => Some(Action::Render),
+            Action::SwitchToFragment(index) => {
+                if self.registry.set_active_by_index(index) {
+                    tracing::info!("Switched to fragment index {}", index);
+                } else {
+                    tracing::warn!("Invalid fragment index: {}", index);
+                }
+                Some(Action::Render)
+            }
+            Action::MouseClick { x, y } => {
+                // Route mouse click to active fragment for session selection
+                if let Some(chat_fragment) = self.registry.get_mut(FragmentId::Chat) {
+                    chat_fragment.model.handle_click(x, y);
+                }
+                Some(Action::Render)
+            }
+            Action::Chat(ChatAction::Scroll(delta)) => {
+                // Route scroll to the active region in the fragment
+                if let Some(chat_fragment) = self.registry.get_mut(FragmentId::Chat) {
+                    chat_fragment.model.handle_scroll(delta);
+                }
+                Some(Action::Render)
+            }
+            // More specific Chat actions first
             Action::Chat(ChatAction::CreateSession) => {
                 // Create a new session with timestamp title
                 let title = chrono::Utc::now().format("%Y-%m-%d %H:%M").to_string();
@@ -77,6 +100,8 @@ impl App {
                         match self.session_store.list_sessions() {
                             Ok(sessions) => {
                                 if let Some(chat_fragment) = self.registry.get_mut(FragmentId::Chat) {
+                                    // Clear messages before loading new session
+                                    chat_fragment.model.clear_messages();
                                     chat_fragment.model.load_sessions(sessions);
                                     // Select the newly created session
                                     chat_fragment.model.select_session_by_id(session.id);
@@ -93,6 +118,13 @@ impl App {
                 }
                 Some(Action::Render)
             }
+            // SaveSession must be handled before the catch-all
+            Action::Chat(ChatAction::SaveSession) => {
+                // Save the current session to persist any message changes
+                self.save_current_session();
+                None
+            }
+            // Catch-all for other chat actions
             Action::Chat(_) => {
                 // Route chat actions to the registry (active fragment)
                 self.registry.update(action)
@@ -101,16 +133,17 @@ impl App {
     }
 
     /// View function - renders the UI
-    pub fn view(&self, f: &mut Frame, chunk: Rect) {
-        crate::ui::layout::render(self, f, chunk);
+    pub fn view(&mut self, f: &mut Frame, _chunk: Rect) {
+        self.registry.view(f);
     }
 
     /// Save the current session state
     pub fn save_current_session(&self) {
         if let Some(chat_fragment) = self.registry.get(FragmentId::Chat) {
-            let session = chat_fragment.model.get_active_session();
+            // Use get_active_session_with_messages to ensure latest messages are saved
+            let session = chat_fragment.model.get_active_session_with_messages();
             if let Some(session) = session {
-                if let Err(e) = self.session_store.save_session(session) {
+                if let Err(e) = self.session_store.save_session(&session) {
                     tracing::error!("Failed to save session: {}", e);
                 }
             }
