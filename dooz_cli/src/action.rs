@@ -1,0 +1,79 @@
+use uuid::Uuid;
+
+/// Action enum representing all possible user actions/events in the TEA pattern.
+#[derive(Debug, Clone, PartialEq)]
+pub enum Action {
+    // Application lifecycle
+    Init,
+    Quit,
+    Exit,
+
+    // UI actions
+    Render,
+    Resize(u16, u16),
+
+    // Fragment navigation
+    SwitchToFragment(usize),
+
+    // Fragment actions
+    Chat(ChatAction),
+
+    // Mouse actions
+    MouseClick { x: u16, y: u16 },
+}
+
+/// Chat fragment actions
+#[derive(Debug, Clone, PartialEq)]
+pub enum ChatAction {
+    // Message actions
+    SendMessage(String),
+    ReceiveMessage { from: String, content: String },
+
+    // Scroll actions (delta: positive = up, negative = down)
+    Scroll(i32),
+    ScrollToBottom,
+
+    // Input area actions
+    InputChar(char),
+    InputBackspace,
+    InputLeft,
+    InputRight,
+    InputEnter,      // Insert newline character
+    SendInput,       // Send the current input (Ctrl+Enter)
+    ClearInput,
+
+    // Session management
+    LoadSessions(Vec<SessionInfo>),
+    SelectSession(usize),
+    SelectSessionById(Uuid),
+    CreateSession,
+
+    // Persistence
+    SaveSession,
+
+    // Help
+    Help,
+
+    // Legacy
+    SelectConversation(String),
+}
+
+/// Session info for UI display (lightweight)
+#[derive(Debug, Clone, PartialEq)]
+pub struct SessionInfo {
+    pub id: Uuid,
+    pub title: String,
+    pub updated_at: chrono::DateTime<chrono::Utc>,
+}
+
+use crate::session::types::Session;
+
+impl From<Session> for SessionInfo {
+    fn from(session: Session) -> Self {
+        Self {
+            id: session.id,
+            title: session.title,
+            updated_at: session.updated_at,
+        }
+    }
+}
